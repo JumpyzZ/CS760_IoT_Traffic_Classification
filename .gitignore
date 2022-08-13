@@ -54,6 +54,7 @@ crashlytics.properties
 
 ### N BaIot ignore ###
 *.csv
+*.rar
 !demonstrate_structure.csv
 
 
