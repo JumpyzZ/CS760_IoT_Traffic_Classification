@@ -46,4 +46,6 @@ crashlytics.properties
 
 ### Ignore pcap files, but keep some sample file ###
 *.pcap
-!Dataset\3-Interactions\Audio\Amazon Echo Dot 2\LAN_VOLUME_OFF\*.pcap
+!echodot2LANVOLUMEOFF_1.pcap
+!echodot2LANVOLUMEOFF_2.pcap
+!echodot2LANVOLUMEOFF_3.pcap
