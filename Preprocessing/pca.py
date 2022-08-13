@@ -1,7 +1,7 @@
 from scapy.all import PcapReader # https://stackoverflow.com/questions/68691090/python-scapy-error-no-libpcap-provider-available
 import pdb
 
-file_path = r'C:\Users\82090\Desktop\CS760_IoT_Traffic_Classification\DataSet\ArloQCamHTTPFlood_1.pcap'
+file_path = r'Dataset\3-Interactions\Audio\Amazon Echo Dot 2\LAN_VOLUME_OFF\echodot2LANVOLUMEOFF_1.pcap'
 
 
 if __name__ == '__main__':
