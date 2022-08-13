@@ -49,3 +49,15 @@ crashlytics.properties
 !echodot2LANVOLUMEOFF_1.pcap
 !echodot2LANVOLUMEOFF_2.pcap
 !echodot2LANVOLUMEOFF_3.pcap
+
+
+
+### N BaIot ignore ###
+*.csv
+!demonstrate_structure.csv
+
+
+
+### ignore hidden files ###
+.*
+!/.gitignore
