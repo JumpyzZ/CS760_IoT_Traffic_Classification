@@ -4,7 +4,7 @@ Dataset link: http://205.174.165.80/IOTDataset/CIC_IOT_Dataset2022/CICIOT/
 
 ## PCA
 
-To get pcaed data with device name and traffic type:+
+To get pcaed data with device name and traffic type:
 
 0. Make sure RAM is enough(23GB+?)
 
