@@ -25,3 +25,7 @@ wget -r --no-parent https://archive.ics.uci.edu/ml/machine-learning-databases/00
 cd ..../CS760_IoT_Traffic_Classification
 python pca_N_BaIot.py
 ```
+
+### PCA - UNSW
+
+There are serveral train and test datasets available of reduced size, this should not take longer than 30 seconds to preform PCA on
