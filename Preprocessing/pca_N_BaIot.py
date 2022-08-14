@@ -12,22 +12,29 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 
 
-# get all csv file path releative to .../CS760_IoT_Traffic_Classification/
-# return: ['Dataset\N_BaIot\Danmini_Doorbell\benign_traffic.csv', ...] 
+
 def get_path_of_csv_files(top):
+    """
+    get all csv file path in 'top' and all its subfolers
+    :param top: root dir string
+    :return: ['Dataset\\N_BaIot\\Danmini_Doorbell\\benign_traffic.csv', ...] 
+    """
     path_of_csv_files = []
     for path_dir_files in os.walk(top):
         for file_name in path_dir_files[2]:
-            if re.search('^(?!\.)(.*?).csv', file_name) != None and file_name != 'demonstrate_structure.csv' and file_name != 'N_BaIot_PCAed.csv':
+            if re.search('^(?!\.)(.*?).csv', file_name) != None and file_name != 'demonstrate_structure.csv' and file_name != 'N_BaIot_PREPROCESSED_FULL.csv':
                 path_of_csv_files.append(path_dir_files[0] + os.sep + file_name)
     return path_of_csv_files
 
 
-# get device name and traffic type based on file path
-# return: {'file_path': 'Dataset\\N_BaIot\\SimpleHome_XCS7_1003_WHT_Security_Camera\\mirai_attacks\\udpplain.csv',
-#           'device_name': 'SimpleHome_XCS7_1003_WHT_Security_Camera',
-#           'traffic_type': 'mirai_attacks-udpplain'}
 def get_file_type(file_path):
+    """
+    get device name and traffic type based on file path
+    :param file_path: a single csv path
+    :return: {'file_path': 'Dataset\\N_BaIot\\SimpleHome_XCS7_1003_WHT_Security_Camera\\mirai_attacks\\udpplain.csv',
+              'device_name': 'SimpleHome_XCS7_1003_WHT_Security_Camera',
+              'traffic_type': 'mirai_attacks-udpplain'}
+    """
     device_name = file_path.split(os.sep)[2]
     traffic_type = ''
     if file_path.count(os.sep) == 3 and file_path.split(os.sep)[-1] == 'benign_traffic.csv':
@@ -39,9 +46,12 @@ def get_file_type(file_path):
             'traffic_type': traffic_type}
 
 
-# perform standardize and pca on given data
-# return: a ndarray
 def standardize_and_pca(df, PCA_PERCENTAGE = 0.99):
+    """
+    perform standardize and pca on given data
+    :param df: dataframe to be processed
+    :return: a ndarray
+    """
     # standardize data
     scaler = StandardScaler()
     ndarray_scaled = scaler.fit_transform(df)
@@ -51,8 +61,10 @@ def standardize_and_pca(df, PCA_PERCENTAGE = 0.99):
     return ndarray_scaled_pca
 
 
-if __name__ == '__main__':
-    # load each csv file, add device name and traffic type, then concat to a full dataframe
+def get_N_BaIot():
+    """
+    :return: a dataframe
+    """
     count = 1
     dataset_dir = 'Dataset' + os.sep + 'N_BaIot'
     file_list = [get_file_type(file_path) for file_path in get_path_of_csv_files(dataset_dir)]
@@ -67,6 +79,12 @@ if __name__ == '__main__':
         else:
             data = pd.concat([data, df_tmp])
         count += 1
+    return data
+
+
+if __name__ == '__main__':
+    # load each csv file, add device name and traffic type, then concat to a full dataframe
+    data = get_N_BaIot()
 
     print('Saving device_name and traffic_type info...')
     df_device_name_traffic_type = data[['device_name', 'traffic_type']]
@@ -84,7 +102,7 @@ if __name__ == '__main__':
     print('Done')
 
     print('Saving pcaed data to csv...')
-    file_path_csv_paced = os.sep.join(['Dataset','N_BaIot','N_BaIot_PCAed.csv'])
+    file_path_csv_paced = os.sep.join(['Dataset','N_BaIot','N_BaIot_PREPROCESSED_FULL.csv'])
     df_pcaed.to_csv(file_path_csv_paced, index = False)
     print('Done')
     pdb.set_trace()

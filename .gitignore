@@ -58,6 +58,9 @@ crashlytics.properties
 !demonstrate_structure.csv
 
 
+### UNSW ignore ###
+!UNSW_NB15_testing-set_SAMPLE.csv
+!UNSW_NB15_training-set_SAMPLE.csv
 
 ### ignore hidden files ###
 .*
