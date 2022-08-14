@@ -18,8 +18,8 @@ def get_path_of_csv_files(top):
     path_of_csv_files = []
     for path_dir_files in os.walk(top):
         for file_name in path_dir_files[2]:
-            if re.search('^(?!\.)(.*?).csv', file_name) != None and file_name != 'demonstrate_structure.csv' and file_name != 'PCAed_with_deveice_name_and_traffic_type.csv':
-                path_of_csv_files.append(path_dir_files[0] + '\\' + file_name)
+            if re.search('^(?!\.)(.*?).csv', file_name) != None and file_name != 'demonstrate_structure.csv' and file_name != 'N_BaIot_PCAed.csv':
+                path_of_csv_files.append(path_dir_files[0] + os.sep + file_name)
     return path_of_csv_files
 
 
@@ -28,12 +28,12 @@ def get_path_of_csv_files(top):
 #           'device_name': 'SimpleHome_XCS7_1003_WHT_Security_Camera',
 #           'traffic_type': 'mirai_attacks-udpplain'}
 def get_file_type(file_path):
-    device_name = file_path.split('\\')[2]
+    device_name = file_path.split(os.sep)[2]
     traffic_type = ''
-    if file_path.count('\\') == 3 and file_path.split('\\')[-1] == 'benign_traffic.csv':
+    if file_path.count(os.sep) == 3 and file_path.split(os.sep)[-1] == 'benign_traffic.csv':
         traffic_type = 'benign_traffic'
-    if file_path.count('\\') == 4:
-        traffic_type = file_path.split('\\')[3] + '-' + file_path.split('\\')[4].replace('.csv', '')
+    if file_path.count(os.sep) == 4:
+        traffic_type = file_path.split(os.sep)[3] + '-' + file_path.split(os.sep)[4].replace('.csv', '')
     return {'file_path': file_path,
             'device_name': device_name,
             'traffic_type': traffic_type}
@@ -41,23 +41,24 @@ def get_file_type(file_path):
 
 # perform standardize and pca on given data
 # return: a ndarray
-def standardize_and_pca(data, PCA_PERCENTAGE = 0.99):
+def standardize_and_pca(df, PCA_PERCENTAGE = 0.99):
     # standardize data
     scaler = StandardScaler()
-    data_scaled = scaler.fit_transform(data)
+    ndarray_scaled = scaler.fit_transform(df)
     # perform PCA on standardized data
     pca = PCA(n_components = PCA_PERCENTAGE)
-    data_scaled_pca = pca.fit_transform(data_scaled)
-    return data_scaled_pca
+    ndarray_scaled_pca = pca.fit_transform(ndarray_scaled)
+    return ndarray_scaled_pca
 
 
 if __name__ == '__main__':
-    # load each csv file, pca and 
+    # load each csv file, add device name and traffic type, then concat to a full dataframe
     count = 1
-    file_list = [get_file_type(file_path) for file_path in get_path_of_csv_files(r'Dataset\N_BaIot')]
+    dataset_dir = 'Dataset' + os.sep + 'N_BaIot'
+    file_list = [get_file_type(file_path) for file_path in get_path_of_csv_files(dataset_dir)]
     data = pd.DataFrame()
     for file in file_list:
-        print('({c}/{f})'.format(c = count, f = len(file_list)), file['file_path'])
+        print('(loading {c}/{f})'.format(c = count, f = len(file_list)), file['file_path'])
         df_tmp = pd.read_csv(file['file_path'])
         df_tmp['device_name'] = file['device_name']
         df_tmp['traffic_type'] = file['traffic_type']
@@ -67,18 +68,23 @@ if __name__ == '__main__':
             data = pd.concat([data, df_tmp])
         count += 1
 
-    df_device_name_traffic_type = pd.DataFrame()
-    df_device_name_traffic_type['device_name'] = data['device_name']
-    df_device_name_traffic_type['traffic_type'] = data['traffic_type']
+    print('Saving device_name and traffic_type info...')
+    df_device_name_traffic_type = data[['device_name', 'traffic_type']]
+    df_device_name_traffic_type.reset_index(drop = True, inplace = True)
+    print('Done')
 
-    print('Start pca...')
+    print('Starting pca...')
     ndarray_pcaed = standardize_and_pca(data.drop(columns=['device_name', 'traffic_type']))
-    print('Done.')
-    df_paced = pd.DataFrame(ndarray_pcaed, columns = ['dim_'+str(i) for i in range(ndarray_pcaed.shape[1])])
-    df_paced['device_name'] = df_device_name_traffic_type['device_name']
-    df_paced['traffic_type'] = df_device_name_traffic_type['traffic_type']
+    print('Done')
+
+    print('Renaming colmuns & adding device_name, traffic_type')
+    df_pcaed = pd.DataFrame(ndarray_pcaed, columns = ['dim_'+str(i) for i in range(ndarray_pcaed.shape[1])])
+    df_pcaed = pd.concat([df_pcaed, df_device_name_traffic_type], axis = 1)
+    del df_device_name_traffic_type
+    print('Done')
 
     print('Saving pcaed data to csv...')
-    df_paced.to_csv(r'Dataset\N_BaIot\PCAed_with_deveice_name_and_traffic_type.csv', index = False)
-    print('Done.')
+    file_path_csv_paced = os.sep.join(['Dataset','N_BaIot','N_BaIot_PCAed.csv'])
+    df_pcaed.to_csv(file_path_csv_paced, index = False)
+    print('Done')
     pdb.set_trace()
