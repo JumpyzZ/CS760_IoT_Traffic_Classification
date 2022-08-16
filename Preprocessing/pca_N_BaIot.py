@@ -58,6 +58,9 @@ def standardize_and_pca(df, PCA_PERCENTAGE = 0.99):
     # perform PCA on standardized data
     pca = PCA(n_components = PCA_PERCENTAGE)
     ndarray_scaled_pca = pca.fit_transform(ndarray_scaled)
+    # add gaussian white noise 
+    ndarray_scaled_pca = ndarray_scaled_pca + np.random.normal(0, 1, size=ndarray_scaled_pca)
+
     return ndarray_scaled_pca
 
 
