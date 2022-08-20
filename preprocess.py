@@ -2,13 +2,13 @@ import pdb
 import os
 import re
 
-import numpy as np
 import pandas as pd
+import numpy as np
 
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.preprocessing import OrdinalEncoder, StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
-
+from sklearn.utils import shuffle
 
 
 def get_path_of_csv_files(top) -> list:
@@ -21,7 +21,8 @@ def get_path_of_csv_files(top) -> list:
     path_of_csv_files = []
     for path_dir_files in os.walk(top):
         for file_name in path_dir_files[2]:
-            if re.search('^(?!\.)(.*?).csv', file_name) != None and file_name != 'demonstrate_structure.csv' and file_name != 'N_BaIot_PREPROCESSED_FULL.csv':
+            if re.search('^(?!\.)(.*?).csv',
+                file_name) != None and file_name != 'demonstrate_structure.csv' and file_name != 'N_BaIot_PREPROCESSED_FULL.csv':
                 path_of_csv_files.append(path_dir_files[0] + os.sep + file_name)
 
     return path_of_csv_files
@@ -38,10 +39,10 @@ def get_file_type(file_path: str) -> dict:
 
     device_name = file_path.split(os.sep)[2]
     traffic_type = ''
-    
+
     if file_path.count(os.sep) == 3 and file_path.split(os.sep)[-1] == 'benign_traffic.csv':
         traffic_type = 'benign_traffic'
-    
+
     if file_path.count(os.sep) == 4:
         traffic_type = file_path.split(os.sep)[3] + '-' + file_path.split(os.sep)[4].replace('.csv', '')
 
@@ -50,18 +51,21 @@ def get_file_type(file_path: str) -> dict:
             'traffic_type': traffic_type}
 
 
-def preprocess(df: pd.DataFrame, PCA_PERCENTAGE = 0.99) -> pd.DataFrame:
+def preprocess(data: pd.DataFrame, num_features: int = 10) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Perform preprocessing transformations on given data
     :param df: Dataframe to be processed
     :return: Dataframe of transformed data 
     """
 
-    array1 = StandardScaler().fit_transform(df)    # standardize data
-    array2 = PCA(n_components = PCA_PERCENTAGE).fit_transform(array1) # perform PCA on standardized data
-    array3 = array2 + np.random.normal(0, 0.1, size=array2) # add gaussian white noise 
+    data = pd.DataFrame(shuffle(data.values), columns=data.columns)   # stop label of the same class clustering
+    y = data['label']
+    data = data.drop(columns='label')
+    array1 = PCA(n_components=min(data.shape[1], num_features)).fit_transform(data)  # perform PCA on standardized data
+    array2 = StandardScaler().fit_transform(array1)  # standardize data
+    array3 = array2 + np.random.normal(0, 0.3, size=array2.shape)  # add gaussian noise
 
-    return pd.DataFrame(array3)
+    return pd.DataFrame(array3), y
 
 
 def get_N_BaIot() -> pd.DataFrame:
@@ -74,7 +78,7 @@ def get_N_BaIot() -> pd.DataFrame:
     file_list = [get_file_type(file_path) for file_path in get_path_of_csv_files(dataset_dir)]
     data = pd.DataFrame()
     for file in file_list:
-        print('(loading {c}/{f})'.format(c = count, f = len(file_list)), file['file_path'])
+        print('(loading {c}/{f})'.format(c=count, f=len(file_list)), file['file_path'])
         df_tmp = pd.read_csv(file['file_path'])
         df_tmp['device_name'] = file['device_name']
         df_tmp['traffic_type'] = file['traffic_type']
@@ -93,35 +97,38 @@ def get_UNSW() -> pd.DataFrame:
     """
 
     train_path = os.sep.join(['Dataset', 'UNSW-NB15 - CSV Files', 'a part of training and testing set', 'UNSW_NB15_training-set.csv'])
-    test_path = os.sep.join(['Dataset','UNSW-NB15 - CSV Files', 'a part of training and testing set', 'UNSW_NB15_testing-set.csv'])
+    test_path = os.sep.join(['Dataset', 'UNSW-NB15 - CSV Files', 'a part of training and testing set', 'UNSW_NB15_testing-set.csv'])
 
-    # fetch data 
+    # fetch data
     df = pd.concat([pd.read_csv(train_path, header=0), pd.read_csv(test_path, header=0)], axis=0, ignore_index=False)
+    df = df.drop(columns=['id'])
 
-    # convert non-numerical entries to numerical 
-    mapping_list = []
-    string_cloumns = df.dtypes.loc[df.dtypes == 'object'].index.to_list()
-    for string_cloumn in string_cloumns:
-        le = LabelEncoder()
-        df[string_cloumn] = le.fit_transform(df[string_cloumn])
-        le_name_mapping = dict(zip(le.classes_, le.transform(le.classes_)))
-        mapping_list.append(le_name_mapping)
-    
+    # get the names of non-numerical data columns
+    string_columns = []
+    for n, val in enumerate(df.values[0]):
+        if not (isinstance(val, int) or isinstance(val, float)):
+            string_columns.append(df.columns[n])
+
+    # turn non-numeric columns entries into integer entries
+    df[string_columns] = OrdinalEncoder().fit_transform(df[string_columns])
+
+    # save column names
     path_mapping_csv = os.sep.join(['Dataset', 'UNSW-NB15 - CSV Files', 'a part of training and testing set', 'UNSW_NB15_LABEL_MAPPING.csv'])
-    pd.DataFrame(mapping_list).T.to_csv(path_mapping_csv, index = True)
-    print('Label mapping writen to {p}.'.format(p = path_mapping_csv))
-    
-    return pd.DataFrame(preprocess(df, 0.9))
+    pd.DataFrame(list(df.columns)).T.to_csv(path_mapping_csv, index=True)
+
+    print('Label mapping writen to {p}.'.format(p=path_mapping_csv))
+
+    return df
 
 
 def process_N_NaIot(split: float = 0.2):
     assert 0 < split < 1
 
-    data = get_N_BaIot() # load each csv file, add device name and traffic type, then concat to a full dataframe
+    data = get_N_BaIot()  # load each csv file, add device name and traffic type, then concat to a full dataframe
 
     print('Saving device_name and traffic_type info...')
     df_device_name_traffic_type = data[['device_name', 'traffic_type']]
-    df_device_name_traffic_type.reset_index(drop = True, inplace = True)
+    df_device_name_traffic_type.reset_index(drop=True, inplace=True)
     print('Done')
 
     print('Starting pca...')
@@ -129,14 +136,14 @@ def process_N_NaIot(split: float = 0.2):
     print('Done')
 
     print('Renaming colmuns & adding device_name, traffic_type')
-    df_pcaed = pd.DataFrame(ndarray_pcaed, columns = ['dim_'+str(i) for i in range(ndarray_pcaed.shape[1])])
-    df_pcaed = pd.concat([df_pcaed, df_device_name_traffic_type], axis = 1)
+    df_pcaed = pd.DataFrame(ndarray_pcaed, columns=['dim_' + str(i) for i in range(ndarray_pcaed.shape[1])])
+    df_pcaed = pd.concat([df_pcaed, df_device_name_traffic_type], axis=1)
     del df_device_name_traffic_type
     print('Done')
 
     print('Saving pcaed data to csv...')
-    file_path_csv_paced = os.sep.join(['Dataset','N_BaIot','N_BaIot_PREPROCESSED_FULL.csv'])
-    df_pcaed.to_csv(file_path_csv_paced, index = False)
+    file_path_csv_paced = os.sep.join(['Dataset', 'N_BaIot', 'N_BaIot_PREPROCESSED_FULL.csv'])
+    df_pcaed.to_csv(file_path_csv_paced, index=False)
     print('Done')
 
     pdb.set_trace()
@@ -147,15 +154,18 @@ def process_N_NaIot(split: float = 0.2):
 def preprocess_UNSW(split: float = 0.2):
     assert 0 < split < 1
 
-    UNSW_data = get_UNSW() # fetch datasets
+    print('Starting Preprocessing')
+    UNSW_data = get_UNSW()  # fetch datasets
+    Xpre, ypre = preprocess(UNSW_data, 4)  # preprocess
 
-    print('Starting PCA')
-    UNSW_PCA = pd.DataFrame(preprocess(UNSW_data, 0.9)) # PCA
-    print('Done.')
+    # Add index column; dataframe needs an index column to use pd.concat
+    Xpre['id'] = Xpre.index + 1
+    ypre['id'] = ypre.index + 1
+    UNSW_data = pd.concat([Xpre, ypre], axis=1).drop(['id'])
 
-    print('Saving data to csv') # save data-sets
-    path_csv_save = os.sep.join(['Dataset','UNSW-NB15 - CSV Files','a part of training and testing set', 'UNSW_NB15_PREPROCESSED_training-set.csv'])
-    UNSW_PCA.to_csv(path_csv_save)
-    print('Done.')
+    # save data-sets
+    path_csv_save = os.sep.join(['Dataset', 'UNSW-NB15 - CSV Files',
+                                 'a part of training and testing set', 'UNSW_NB15_PREPROCESSED.csv'])
+    UNSW_data.to_csv(path_csv_save)
 
-    return train_test_split(UNSW_PCA, test_size=split)
+    return Xpre, ypre
