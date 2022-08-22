@@ -65,7 +65,7 @@ def preprocess(data: pd.DataFrame, num_features: int = 10) -> tuple[pd.DataFrame
     array2 = StandardScaler().fit_transform(array1)  # standardize data
     array3 = array2 + np.random.normal(0, 0.3, size=array2.shape)  # add gaussian noise
 
-    return pd.DataFrame(array3), y
+    return pd.DataFrame(array3), y 
 
 
 def get_N_BaIot() -> pd.DataFrame:
@@ -151,9 +151,8 @@ def process_N_NaIot(split: float = 0.2):
     return train_test_split(df_pcaed, test_size=split)
 
 
-def preprocess_UNSW(split: float = 0.2):
+def preprocess_UNSW(split: float=0.2):
     assert 0 < split < 1
-
     print('Starting Preprocessing')
     UNSW_data = get_UNSW()  # fetch datasets
     Xpre, ypre = preprocess(UNSW_data, 4)  # preprocess
@@ -168,4 +167,4 @@ def preprocess_UNSW(split: float = 0.2):
                                  'a part of training and testing set', 'UNSW_NB15_PREPROCESSED.csv'])
     UNSW_data.to_csv(path_csv_save)
 
-    return Xpre, ypre
+    return train_test_split(Xpre, ypre, test_size=split) 
