@@ -51,7 +51,7 @@ def get_file_type(file_path: str) -> dict:
             'traffic_type': traffic_type}
 
 
-def preprocess(data: pd.DataFrame, num_features: int = 10) -> tuple[pd.DataFrame, pd.DataFrame]:
+def preprocess(data: pd.DataFrame, num_features: int = 10) -> tuple([pd.DataFrame, pd.DataFrame]):
     """
     Perform preprocessing transformations on given data
     :param df: Dataframe to be processed
@@ -157,10 +157,16 @@ def preprocess_UNSW(split: float=0.2):
     UNSW_data = get_UNSW()  # fetch datasets
     Xpre, ypre = preprocess(UNSW_data, 4)  # preprocess
 
+    #Added to make sure labels and data have same length 
+    ypre = pd.DataFrame(ypre)
+
     # Add index column; dataframe needs an index column to use pd.concat
     Xpre['id'] = Xpre.index + 1
     ypre['id'] = ypre.index + 1
-    UNSW_data = pd.concat([Xpre, ypre], axis=1).drop(['id'])
+
+    #It will just cause the csv file to have two columns with ID, need to fix that but not very important for the
+    #return statement
+    UNSW_data = pd.concat([Xpre, ypre], axis=1)#.drop(['id'])
 
     # save data-sets
     path_csv_save = os.sep.join(['Dataset', 'UNSW-NB15 - CSV Files',
