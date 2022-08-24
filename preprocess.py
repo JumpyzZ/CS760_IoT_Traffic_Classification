@@ -173,4 +173,7 @@ def preprocess_UNSW(split: float=0.2):
                                  'a part of training and testing set', 'UNSW_NB15_PREPROCESSED.csv'])
     UNSW_data.to_csv(path_csv_save)
 
-    return train_test_split(Xpre, ypre, test_size=split) 
+    Xpre = Xpre.drop(['id'], axis=1)
+    ypre = ypre.drop(['id'], axis=1)
+
+    return train_test_split(Xpre, ypre, test_size=split)

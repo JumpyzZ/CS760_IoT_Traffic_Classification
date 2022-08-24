@@ -1,99 +1,72 @@
 import time
 import matplotlib.pyplot as plt
-
-from typing import Union, Callable
 from sklearn import svm
-from secml.adv.attacks import CAttackPoisoningSVM
+from sklearn.metrics import log_loss, hinge_loss
+from NN_model import *
 
 from preprocess import * 
 
 
-svc = svm.SVC 
-
-
-# perform dataset posioning on a SVM 
-def posion_svm(X_train: pd.DataFrame, y_train: pd.DataFrame, loss: Callable) -> tuple[pd.DataFrame, float]:
-
-    train_features = X_train
-    train_label = y_train
-
-    x_train, x_val, y_train, y_val = train_test_split(train_features, train_label, train_size = 0.8, random_state = 100)
-
-    # set bounds of the attack space.
-    lb, ub = x_val.X.min(), x_val.X.max()
-
-    tr = x_train + y_train
-    val = x_val + y_val
-
-    # select and initialize parameter
-    solver_params = {
-    'eta': 0.05,
-    'eta_min': 0.05,
-    'eta_max': None,
-    'max_iter': 100,
-    'eps': 1e-6
-    }
-
-    pois_attack = CAttackPoisoningSVM(classifier = ss,
-                       training_data = tr,
-                       val = val ,
-                       lb=lb, ub=ub,
-                       solver_params=solver_params,
-                       random_seed=760)
-
-    # chose and set the initial poisoning sample features and label
-    xc = tr[,:].X
-    yc = tr[,:].Y
-    pois_attack.x0 = xc
-    pois_attack.xc = xc
-    pois_attack.yc = yc
-
-    print("Initial poisoning sample features: {:}".format(xc.ravel()))
-    print("Initial poisoning sample label: {:}".format(yc.item()))
-
-    # Run the poisoning attack
-    pois_y_pred, pois_scores, pois_ds, f_opt = pois_attack.run(val.X, val.Y)
-
-    # Evaluate the accuracy of the original classifier
-    acc = metric.performance_score(y_true=ts.Y, y_pred=y_pred)
-    # Evaluate the accuracy after the poisoning attack
-    pois_acc = metric.performance_score(y_true=ts.Y, y_pred=pois_y_pred)
-
-    print("Original accuracy on test set: {:.2%}".format(acc))
-    print("Accuracy after attack on test set: {:.2%}".format(pois_acc))
-
-    return tr,val
-  
-
-def train_svm(X: pd.DataFrame, y: pd.DataFrame, split: float) -> tuple[list, list, list]:
+def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
+                X_test: pd.DataFrame, y_test: pd.DataFrame) -> tuple[list, list]:
     """
         :objective: iteratively trains a SVC on dataset and posions the dataset
         :return: model performance over iteration of posioning 
     """
 
-    # meta datas <--- use history class? 
-    accuracy = [] 
-    eval_time = [] 
-    training_time = []
-    parameters = []
+    assert hasattr(model, 'fit') and hasattr(model, 'predict')
 
-    X_train, y_train, X_test, y_test = train_test_split(X, y, test_size=split)  # split dataset 
+    epoch_length = 100 #int(np.ceil(len(X_train)) / 100)
+    epoch_batch = [[], np.array([]), [], []]
+    cross_entropy = []
+    hinge = []
+    count = 0
 
-    for i in range(10):  # I'm what sure not the stopping criteria will be!
-        train_start = time.time()   # begin the clock
-        svc = svm.SVC(C=1.0, kernel="rbf").fit(X_train, y_train) # training svc...
-        
-        eval_start = time.time()
-        accuracy = svc.score(X_test, y_test) # obtain accuracy result
+    for n, xtr, ytr, xte, yte in zip(range(len(X_train)), X_train.to_numpy(), y_train.to_numpy(), X_test.to_numpy(), y_test.to_numpy()):
+        epoch_batch[0].append(xtr)
+        epoch_batch[1] = np.append(epoch_batch[1], ytr, axis=0)
+        epoch_batch[2].append(xte)
+        epoch_batch[3] = np.append(epoch_batch[3], yte, axis=0)
+        if np.mod(n, epoch_length) == 1 and n != 1:
+            model.fit(epoch_batch[0], epoch_batch[1])
+            predictions = model.predict(epoch_batch[2])
+            cross_entropy.append(log_loss(predictions, epoch_batch[3]))
+            hinge.append(hinge_loss(predictions, epoch_batch[3]))
+            count += 1
+            if count == 10:
+                return cross_entropy, hinge
 
-        end = time.time() # stop clock 
+    return cross_entropy, hinge
 
-        X_train, y_train = posion_svm(X_train, y_train) # poison attack
 
-        accuracy.append(svc.score(X_test, y_test))  # assemble meta data  
-        eval_time.append(end - eval_start)
-        training_time.append(end - train_start)
+def plot():
+    entropy_filename = 'SVM - binary cross entropy'
+    hinge_filename = 'SVM - hinge loss'
 
-    # <---- maybe a save function for posioned data? 
+    recompute = False
+    if os.path.exists(entropy_filename) and os.path.exists(hinge_filename) and not recompute:
+        cross = np.loadtxt(entropy_filename)
+        hinge = np.loadtxt(hinge_filename)
+    else:
+        svc = svm.SVC(C=1, kernel='rbf')
+        X_train, X_test, y_train, y_test = preprocess_UNSW()
+        cross, hinge = train_model(svc, X_train, y_train, X_test, y_test)
 
-    return accuracy, eval_time, training_time
+    np.savetxt('SVM - binary cross entropy', cross)
+    np.savetxt('SVM - hinge loss', hinge)
+
+    fig = plt.figure()
+    plt.title("Loss Of SVM", fontsize=25)
+
+    #plt.plot(cross, label='binary cross entropy', linewidth=2)
+    plt.plot(hinge, label='hinge loss', linewidth=3, marker='o', linestyle='dashed', markersize=9)
+
+    plt.legend(fontsize=20)
+    plt.xticks(fontsize=20)
+    plt.yticks(fontsize=20)
+    plt.ylabel('Loss', fontsize=25)
+    plt.xlabel('Epoch', fontsize=25)
+
+    plt.show()
+
+plot()
