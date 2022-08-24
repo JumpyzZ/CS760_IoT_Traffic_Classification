@@ -1,7 +1,7 @@
 import time
 import matplotlib.pyplot as plt
 from sklearn import svm
-from sklearn.metrics import log_loss, hinge_loss
+from sklearn.metrics import log_loss, hinge_loss, accuracy_score
 from NN_model import *
 
 from preprocess import * 
@@ -50,18 +50,24 @@ def plot():
 
     X_train, X_test, y_train, y_test = preprocess_UNSW()
 
+    dnn.fit(X_train, y_train)
+    svc.fit(np.array(X_train), np.ravel(y_train))
+    print('starting')
+    print('svc: ', accuracy_score(np.array(y_test), np.array(svc.predict(np.array(X_test)))))
+    print('nn: ', accuracy_score(np.array(y_test), dnn.predict(np.array(X_test))))
+
     recompute = False
     fig = plt.figure()
     for n, m in enumerate(models):
-        if os.path.exists(hinge_filename) and not recompute:
+        if os.path.exists(f"{m} - {hinge_filename}") and not recompute:
             hinge[n].append(np.loadtxt(f"{m}{hinge_filename}"))
         else:
             hinge[n] = np.append(hinge[n], train_model(models[m], X_train, y_train, X_test, y_test), axis=0)
+            np.savetxt(f'{m}{hinge_filename}', hinge[n])
 
+        hinge[1] = np.loadtxt('DNN_-_hinge_loss')
+        hinge[0] = np.loadtxt('SVC_-_hinge_loss')
         plt.plot(hinge[n], label=f'{m} hinge loss', linewidth=3, linestyle='dashed', marker='o', markersize=9)
-        np.savetxt(f'{m}{hinge_filename}', hinge[n])
-
-    print(hinge)
 
     plt.title("Model Loss Evaluation", fontsize=25)
 
@@ -72,5 +78,6 @@ def plot():
     plt.xlabel('Epoch', fontsize=25)
 
     plt.show()
+
 
 plot()
