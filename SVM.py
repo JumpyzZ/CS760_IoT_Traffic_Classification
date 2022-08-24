@@ -8,7 +8,7 @@ from preprocess import *
 
 
 def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
-                X_test: pd.DataFrame, y_test: pd.DataFrame) -> tuple[list, list]:
+                X_test: pd.DataFrame, y_test: pd.DataFrame) -> list:
     """
         :objective: iteratively trains a SVC on dataset and posions the dataset
         :return: model performance over iteration of posioning 
@@ -16,9 +16,8 @@ def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
 
     assert hasattr(model, 'fit') and hasattr(model, 'predict')
 
-    epoch_length = 100 #int(np.ceil(len(X_train)) / 100)
-    epoch_batch = [[], np.array([]), [], []]
-    cross_entropy = []
+    epoch_length = 200 #int(np.ceil(len(X_train)) / 100)
+    epoch_batch = [[], np.array([]), [], np.array([])]
     hinge = []
     count = 0
 
@@ -28,38 +27,43 @@ def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
         epoch_batch[2].append(xte)
         epoch_batch[3] = np.append(epoch_batch[3], yte, axis=0)
         if np.mod(n, epoch_length) == 1 and n != 1:
-            model.fit(epoch_batch[0], epoch_batch[1])
-            predictions = model.predict(epoch_batch[2])
-            cross_entropy.append(log_loss(predictions, epoch_batch[3]))
+            model.fit(np.array(epoch_batch[0]), epoch_batch[1])
+            predictions = np.array([1 if t >= 0.5 else 0 for t in model.predict(np.array(epoch_batch[2]))])
             hinge.append(hinge_loss(predictions, epoch_batch[3]))
             count += 1
             if count == 10:
-                return cross_entropy, hinge
+                return hinge
 
-    return cross_entropy, hinge
+    return hinge
 
 
 def plot():
-    entropy_filename = 'SVM - binary cross entropy'
-    hinge_filename = 'SVM - hinge loss'
+    hinge_filename = ' - hinge loss'
+
+    svc = svm.SVC(C=1, kernel='rbf')
+    dnn = CustomNN()
+    dnn.compile(optimizer='Adam', loss='mse')
+
+    models = {'SVC': svc, 'DNN': dnn}
+    colors = ['tab:']
+    hinge = [[], []]
+
+    X_train, X_test, y_train, y_test = preprocess_UNSW()
 
     recompute = False
-    if os.path.exists(entropy_filename) and os.path.exists(hinge_filename) and not recompute:
-        cross = np.loadtxt(entropy_filename)
-        hinge = np.loadtxt(hinge_filename)
-    else:
-        svc = svm.SVC(C=1, kernel='rbf')
-        X_train, X_test, y_train, y_test = preprocess_UNSW()
-        cross, hinge = train_model(svc, X_train, y_train, X_test, y_test)
-
-    np.savetxt('SVM - binary cross entropy', cross)
-    np.savetxt('SVM - hinge loss', hinge)
-
     fig = plt.figure()
-    plt.title("Loss Of SVM", fontsize=25)
+    for n, m in enumerate(models):
+        if os.path.exists(hinge_filename) and not recompute:
+            hinge[n].append(np.loadtxt(f"{m}{hinge_filename}"))
+        else:
+            hinge[n] = np.append(hinge[n], train_model(models[m], X_train, y_train, X_test, y_test), axis=0)
 
-    #plt.plot(cross, label='binary cross entropy', linewidth=2)
-    plt.plot(hinge, label='hinge loss', linewidth=3, marker='o', linestyle='dashed', markersize=9)
+        plt.plot(hinge[n], label=f'{m} hinge loss', linewidth=3, linestyle='dashed', marker='o', markersize=9)
+        np.savetxt(f'{m}{hinge_filename}', hinge[n])
+
+    print(hinge)
+
+    plt.title("Model Loss Evaluation", fontsize=25)
 
     plt.legend(fontsize=20)
     plt.xticks(fontsize=20)
