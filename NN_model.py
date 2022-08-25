@@ -13,7 +13,7 @@ Array = Union[np.array, list]
 @dataclass
 class MetricHistory:
     metrics: dict
-    epoch_lim: int = field(default=0)
+    epoch_lim: float = field(default=0)
 
     def update(self, new_metrics: Array) -> None:
         assert len(new_metrics) == len(self.metrics)
@@ -42,6 +42,10 @@ class CustomLoss(tf.keras.losses.Loss):
         return array
 
 
+def threshold(predictions: np.array) -> np.array:
+    return np.array([1 if t > 0.5 else 0 for t in predictions])
+
+
 class CustomNN(tf.keras.Model):
     def __init__(self) -> None:
         super().__init__()
@@ -55,4 +59,3 @@ class CustomNN(tf.keras.Model):
         features3 = self.dense3(features2)
 
         return features3
-

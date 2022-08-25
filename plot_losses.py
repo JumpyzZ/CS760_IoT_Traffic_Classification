@@ -1,4 +1,4 @@
-from SVM import *
+from train_model import *
 # from NN_model import *
 
 
