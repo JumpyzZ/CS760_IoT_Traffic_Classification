@@ -9,7 +9,7 @@ from typing import Union
 Numeric = Union[float, int]
 Array = Union[np.array, list]
 
-
+# --------------------------------------------------- not using --------------------------------------------------------
 @dataclass
 class MetricHistory:
     metrics: dict
@@ -41,9 +41,7 @@ class CustomLoss(tf.keras.losses.Loss):
 
         return array
 
-
-def threshold(predictions: np.array) -> np.array:
-    return np.array([1 if t > 0.5 else 0 for t in predictions])
+# --------------------------------------------------- ^ not using ^ ----------------------------------------------------
 
 
 class CustomNN(tf.keras.Model):
@@ -59,3 +57,20 @@ class CustomNN(tf.keras.Model):
         features3 = self.dense3(features2)
 
         return features3
+
+    def loss_grad(self, x: Array, y_tr: Array) -> tuple[np.array, np.array]:
+        """
+        :param x: A feature sample point to evaluate the gradients at
+        :param y_tr: A label sample point
+        :return: derivative of the loss with respect to x and weights
+        """
+
+        with tf.GradientTape() as tape:
+            tape.watch(x)
+            y_pred = self.predict(x)
+            l = self.loss(y_tr, y_pred)
+
+        dl_dx = tape.jacobian(l, x)
+        dl_dw = tape.jacobian(l, self.trainable_weights)
+
+        return dl_dx, dl_dw
