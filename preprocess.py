@@ -51,7 +51,7 @@ def get_file_type(file_path: str) -> dict:
             'traffic_type': traffic_type}
 
 
-def preprocess(data: pd.DataFrame, num_features: int = 10) -> tuple([pd.DataFrame, pd.DataFrame]):
+def preprocess(data: pd.DataFrame, num_features: int = 10) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Perform preprocessing transformations on given data
     :param df: Dataframe to be processed

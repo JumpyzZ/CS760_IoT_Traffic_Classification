@@ -15,15 +15,12 @@ from NN_model import *
 from preprocess import *
 
 
-def threshold_round(predictions: np.array) -> np.array:
-    return np.array([1 if t > 0.5 else 0 for t in predictions])
-
-
 def solver_params() -> dict:
     """
     :return: Hyper parameters for posioning attack
     """
-    return {'maxIter': 100, 'tol': np.power(10.0, -5), 'eta': 0.01, 'high': 1, 'low': 0}
+
+    return {'maxIter': 100, 'tol': np.power(10.0, -5), 'eta': 0.01, 'high': 1, 'low': 0, 'h': np.power(10.0, -4)}
 
 
 def evaluation_metrics(model, X_eval: Array, y_eval: Array) -> dict:
@@ -42,44 +39,64 @@ def evaluation_metrics(model, X_eval: Array, y_eval: Array) -> dict:
             'false negative': fn, 'true positive': tp}
 
 
-def gradient_attack(model: Callable, gradient: Callable, params: dict) -> [np.array, int, bool]:
+def central_difference(model: Callable, y_true: float, x: np.array, h: float) -> np.array:
+    assert hasattr(model, 'loss')
+    dldx = []
+    loss = log_loss
+    y_true = 1
+    print(x)
+    x = x[0]
+    for i, xi in enumerate(x):
+        print(i)
+        x[i] += h
+        #print(model.predict(x))
+        L = loss(model.predict(np.array([x])), [y_true])
+        print(L)
+        x[i] -= 2*h
+        dldx.append(np.divide(loss(threshold_round(model.predict(np.array([x]))), [y_true], labels=(0, 1)) - L, 2*h))
+        #print(L, loss(threshold_round(model.predict(x)), [y_true], labels=(0, 1)))
+        x[i] += h
+
+    return np.array(dldx)
+
+
+def gradient_attack(model: Callable, x: np.array, y: np.array, params: dict, gradient: Callable) -> tuple[np.array, int, int]:
     """
     :param model: model which can compute gradient (will make wrapper class later for SVM and RANDOM FOREST)
     :param gradient: a callable which defines how the algorithm handles dl_dx and dx_dw
     :param params: model parameters, like the tolerance
     :return: Feature, label, boolean; see poison_model comment
     """
-    assert hasattr(model, 'loss_grad') and callable(model.loss_grad)
 
-    # initialise guess - possibly make Gaussian?
-    x = np.random.uniform(params['high'], params['low'])
-    y = 0
-    converged = False
+    # initialise guess - possibly make Gaussian? (this is a non-biased distribution)
+    iters = 0
     for i in range(params['maxIter']):
-        dl_dw, dw_dx = model.loss_grad(x, y)
-        dl_dx = gradient(dl_dw, dw_dx)  # chain rule
+        dl_dx = central_difference(model, y, x, params['h'])
+        print('DLDX', dl_dx)
         x_last = x
+        iters = i
+
         # performs gradient ascent like method, depends on implementation of gradient function
-        x = x + params['eta'] * dl_dx
-        if np.linalg.norm(x - x_last, 2) < params['tol']:
-            converged = True
+        x = x + params['eta'] * gradient(dl_dx)
+        if max(np.linalg.norm(x - x_last, 2), dl_dx) < params['tol']:
             break
 
-    return x, y, converged
+    return x, y, iters
 
 
-def poison_model(model: Callable, attack: str) -> Array:
+def poison_model(model: Callable, x: np.array, y: np.array, attack: str) -> Array: # assumes loss is parameterised by model
     """
     :param model: The model to be used, won't be altered
     :param attack: A string which defines the attack type
     :return: A single feature x and corresponding label y which is the result of the poisoning algorithm.
              Also True if convergence, False otherwise.
     """
+
     params = solver_params()
     if attack == 'maximum':
-        return gradient_attack(model, lambda dl_dw, dw_dx: dl_dw * dw_dx, params)
+        return gradient_attack(model, x, y, params, lambda dir: dir)
     elif attack == 'fast sign':
-        return gradient_attack(model, lambda dl_dw, dw_dx: np.sign(dl_dw * dw_dx), params)
+        return gradient_attack(model, params, lambda dir: np.sign(dir))
 
 
 def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
@@ -108,6 +125,9 @@ def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
         epoch_batch[3] = np.append(epoch_batch[3], yte, axis=0)
         # if next epoch has been reached train model on all data seen so far
         if np.mod(n, epoch_length) == 1 and n != 1:
+            print(epoch_batch[0])
+            x = np.array(epoch_batch[0])
+            print(x.shape)
             model.fit(np.array(epoch_batch[0]), epoch_batch[1])
 
             # acquire generalisation and training loss
@@ -143,20 +163,25 @@ def plot() -> None:
         plt.ylabel(ylabel, fontsize=25)
         plt.xlabel('Epoch', fontsize=25)
 
+    X_train, X_eval, y_train, y_eval = preprocess_UNSW()
+
     dnn = CustomNN()
     dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy)
 
     models = {'SVC': svm.SVC(), 'RANDOM FOREST': RandomForestClassifier(), 'DNN': dnn}
     loss_funcs = {'SVC': hinge_loss, 'RANDOM FOREST':  tf.losses.binary_crossentropy, 'DNN': tf.losses.binary_crossentropy}
 
-    X_train, X_eval, y_train, y_eval = preprocess_UNSW()
-
     #X_train = X_train.iloc[0:50, :]        # commented out for speed
     #y_train = y_train.iloc[0:50, :]
     #X_eval = X_eval.iloc[0:50, :]
     #y_eval = y_eval.iloc[0:50, :]
 
-    #dnn.fit(X_train, y_train)
+    print(np.array(y_train.iloc[0]), np.mod(y_train.iloc[0] + 1, 2))
+    models['DNN'].fit(np.array(X_train), y_train)
+    print(poison_model(models['DNN'], np.array([X_train.iloc[0]]), np.array(np.mod(y_train.iloc[0] + 1, 2)), 'maximum'))
+    while True:
+        continue
+    #print(loss_grad(models['DNN'], X_train, y_train))
     #models['SVC'].fit(np.array(X_train), y_train.values.ravel())
     #models['RANDOM FOREST'].fit(np.array(X_train), y_train.values.ravel())
 
@@ -190,6 +215,5 @@ def plot() -> None:
             np.savetxt(f"{m} {metric_name}", hist)
 
     plt.show()
-
 
 plot()
