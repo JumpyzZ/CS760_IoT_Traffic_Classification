@@ -121,7 +121,7 @@ def get_UNSW() -> pd.DataFrame:
     return df
 
 
-def process_N_NaIot(split: float = 0.2):
+def process_N_BaIot(split: float = 0.2):
     assert 0 < split < 1
 
     data = get_N_BaIot()  # load each csv file, add device name and traffic type, then concat to a full dataframe
@@ -151,11 +151,11 @@ def process_N_NaIot(split: float = 0.2):
     return train_test_split(df_pcaed, test_size=split)
 
 
-def preprocess_UNSW(split: float=0.2):
+def preprocess_UNSW(split: float=0.2, ):
     assert 0 < split < 1
     print('Starting Preprocessing')
     UNSW_data = get_UNSW()  # fetch datasets
-    Xpre, ypre = preprocess(UNSW_data, 4)  # preprocess
+    Xpre, ypre = preprocess(UNSW_data, 10)  # preprocess
 
     #Added to make sure labels and data have same length 
     ypre = pd.DataFrame(ypre)

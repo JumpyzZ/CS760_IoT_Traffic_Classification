@@ -8,7 +8,7 @@ Array = Union[np.array, list]
 
 
 class CustomNN(tf.keras.Model):
-    def __init__(self, n: int = 4) -> None:
+    def __init__(self, n: int = 10) -> None:
         super().__init__()
         self.dense1 = tf.keras.layers.Dense(n, activation=tf.nn.relu, kernel_regularizer='l1')
         self.dense2 = tf.keras.layers.Dense(6, activation=tf.nn.relu, kernel_regularizer='l2')
@@ -22,7 +22,7 @@ class CustomNN(tf.keras.Model):
         return features3
 
 
-def threshold_round(predictions: np.array) -> np.array:
+def myround(predictions: np.array) -> np.array:
     return np.array([1 if t > 0.5 else 0 for t in predictions])
 
 

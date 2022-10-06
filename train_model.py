@@ -4,10 +4,6 @@ from sklearn import svm
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import log_loss, hinge_loss, accuracy_score, confusion_matrix
 
-from secml.adv.attacks import CAttackPoisoningSVM
-from secml.ml.classifiers import CClassifierSkLearn, CClassifierSVM
-from secml.array import CArray
-
 from typing import Callable
 
 from NN_model import *
@@ -20,7 +16,7 @@ def solver_params() -> dict:
     :return: Hyper parameters for posioning attack
     """
 
-    return {'maxIter': 100, 'tol': np.power(10.0, -5), 'eta': 0.01, 'high': 1, 'low': 0, 'h': np.power(10.0, -4)}
+    return {'maxIter': 100, 'tol': np.power(10.0, -10), 'eta': 1, 'high': 1, 'low': 0, 'h': np.power(10.0, -4)}
 
 
 def evaluation_metrics(model, X_eval: Array, y_eval: Array) -> dict:
@@ -32,35 +28,29 @@ def evaluation_metrics(model, X_eval: Array, y_eval: Array) -> dict:
     """
     assert hasattr(model, 'predict')
 
-    y_pred = threshold_round(model.predict(X_eval))
+    y_pred = myround(model.predict(X_eval))
     tn, fp, fn, tp = confusion_matrix(y_eval, y_pred, labels=[0, 1], normalize='all').ravel()
 
     return {'accuracy': accuracy_score(y_eval, y_pred), 'true negative': tn, 'false positive': fp,
             'false negative': fn, 'true positive': tp}
 
 
-def central_difference(model: Callable, y_true: float, x: np.array, h: float) -> np.array:
+def central_difference(model: Callable, y: int, x: np.array, h: float) -> np.array:
     assert hasattr(model, 'loss')
     dldx = []
     loss = log_loss
-    y_true = 1
-    print(x)
-    x = x[0]
     for i, xi in enumerate(x):
-        print(i)
-        x[i] += h
-        #print(model.predict(x))
-        L = loss(model.predict(np.array([x])), [y_true])
-        print(L)
-        x[i] -= 2*h
-        dldx.append(np.divide(loss(threshold_round(model.predict(np.array([x]))), [y_true], labels=(0, 1)) - L, 2*h))
-        #print(L, loss(threshold_round(model.predict(x)), [y_true], labels=(0, 1)))
-        x[i] += h
+        x[i] = xi + h
+        L0 = loss(y_pred=model.predict(np.array([x])), y_true=[y], labels=(0, 1))
+        x[i] = xi - h
+        L1 = loss(y_pred=model.predict(np.array([x])), y_true=[y], labels=(0, 1))
+        dldx.append((L1 - L0)/2*h)
+        x[i] = xi
 
     return np.array(dldx)
 
 
-def gradient_attack(model: Callable, x: np.array, y: np.array, params: dict, gradient: Callable) -> tuple[np.array, int, int]:
+def gradient_attack(model: Callable, x: np.array, y: int, params: dict, gradient: Callable) -> tuple[np.array, int, int]:
     """
     :param model: model which can compute gradient (will make wrapper class later for SVM and RANDOM FOREST)
     :param gradient: a callable which defines how the algorithm handles dl_dx and dx_dw
@@ -70,21 +60,26 @@ def gradient_attack(model: Callable, x: np.array, y: np.array, params: dict, gra
 
     # initialise guess - possibly make Gaussian? (this is a non-biased distribution)
     iters = 0
+    x = x[0]
+    print(x,  log_loss(y_pred=model.predict(np.array([x])), y_true=[y], labels=(0, 1)))
     for i in range(params['maxIter']):
         dl_dx = central_difference(model, y, x, params['h'])
-        print('DLDX', dl_dx)
+        print(dl_dx)
         x_last = x
         iters = i
 
         # performs gradient ascent like method, depends on implementation of gradient function
         x = x + params['eta'] * gradient(dl_dx)
-        if max(np.linalg.norm(x - x_last, 2), dl_dx) < params['tol']:
+        if np.linalg.norm(x - x_last, 2) < params['tol']:
+            iters = i + 1
             break
+
+    print(x,  log_loss(y_pred=model.predict(np.array([x])), y_true=[y], labels=(0, 1)))
 
     return x, y, iters
 
 
-def poison_model(model: Callable, x: np.array, y: np.array, attack: str) -> Array: # assumes loss is parameterised by model
+def poison_model(model: Callable, x: np.array, y, attack: str) -> Array: # assumes loss is parameterised by model
     """
     :param model: The model to be used, won't be altered
     :param attack: A string which defines the attack type
@@ -125,17 +120,15 @@ def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
         epoch_batch[3] = np.append(epoch_batch[3], yte, axis=0)
         # if next epoch has been reached train model on all data seen so far
         if np.mod(n, epoch_length) == 1 and n != 1:
-            print(epoch_batch[0])
             x = np.array(epoch_batch[0])
-            print(x.shape)
             model.fit(np.array(epoch_batch[0]), epoch_batch[1])
 
             # acquire generalisation and training loss
-            loss_record[0].append(loss_func(epoch_batch[1], threshold_round(model.predict(epoch_batch[0]))))
-            loss_record[1].append(loss_func(epoch_batch[3], threshold_round(model.predict(epoch_batch[2]))))
+            loss_record[0].append(loss_func(epoch_batch[1], myround(model.predict(epoch_batch[0]))))
+            loss_record[1].append(loss_func(epoch_batch[3], myround(model.predict(epoch_batch[2]))))
 
             # acquire performance metrics
-            for name, value in evaluation_metrics(model, X_train, y_train).items():
+            for name, value in evaluation_metrics(model, epoch_batch[0], epoch_batch[1]).items():
                 metrics[name].append(value)
 
             # stop after 10 epochs
@@ -176,11 +169,11 @@ def plot() -> None:
     #X_eval = X_eval.iloc[0:50, :]
     #y_eval = y_eval.iloc[0:50, :]
 
-    print(np.array(y_train.iloc[0]), np.mod(y_train.iloc[0] + 1, 2))
-    models['DNN'].fit(np.array(X_train), y_train)
-    print(poison_model(models['DNN'], np.array([X_train.iloc[0]]), np.array(np.mod(y_train.iloc[0] + 1, 2)), 'maximum'))
-    while True:
-        continue
+    models['DNN'].fit(np.array(X_train), np.array(y_train))
+
+    # model posioning
+    print(poison_model(models['DNN'], np.array([X_train.iloc[0]]), np.mod(y_train.iloc[0] + 1, 2)[0], 'maximum'))
+
     #print(loss_grad(models['DNN'], X_train, y_train))
     #models['SVC'].fit(np.array(X_train), y_train.values.ravel())
     #models['RANDOM FOREST'].fit(np.array(X_train), y_train.values.ravel())
