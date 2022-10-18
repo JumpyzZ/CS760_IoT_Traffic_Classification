@@ -1,10 +1,11 @@
 import matplotlib.pyplot as plt
 
+from CNN import *
 from sklearn import svm
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import log_loss, hinge_loss, accuracy_score, confusion_matrix
 
-from typing import Callable
+from typing import Callable, List, Any
 
 from NN_model import *
 
@@ -35,22 +36,23 @@ def evaluation_metrics(model, X_eval: Array, y_eval: Array) -> dict:
             'false negative': fn, 'true positive': tp}
 
 
-def central_difference(model: Callable, y: int, x: np.array, h: float) -> np.array:
+def central_difference(model: Callable, loss: Callable, y: int, x: np.array, h: float) -> np.array:
     assert hasattr(model, 'loss')
+
     dldx = []
-    loss = log_loss
+
     for i, xi in enumerate(x):
         x[i] = xi + h
-        L0 = loss(y_pred=model.predict(np.array([x])), y_true=[y], labels=(0, 1))
+        L0 = loss(y_pred=model.predict(x), y_true=[y], labels=(0, 1))
         x[i] = xi - h
-        L1 = loss(y_pred=model.predict(np.array([x])), y_true=[y], labels=(0, 1))
+        L1 = loss(y_pred=model.predict(x), y_true=[y], labels=(0, 1))
         dldx.append((L1 - L0)/2*h)
         x[i] = xi
 
     return np.array(dldx)
 
 
-def gradient_attack(model: Callable, x: np.array, y: int, params: dict, gradient: Callable) -> tuple[np.array, int, int]:
+def gradient_attack(model: Callable, loss: Callable, gradient: Callable, x: np.array, y: int, params: dict) -> tuple[np.array, int]:
     """
     :param model: model which can compute gradient (will make wrapper class later for SVM and RANDOM FOREST)
     :param gradient: a callable which defines how the algorithm handles dl_dx and dx_dw
@@ -58,13 +60,9 @@ def gradient_attack(model: Callable, x: np.array, y: int, params: dict, gradient
     :return: Feature, label, boolean; see poison_model comment
     """
 
-    # initialise guess - possibly make Gaussian? (this is a non-biased distribution)
     iters = 0
-    x = x[0]
-    print(x,  log_loss(y_pred=model.predict(np.array([x])), y_true=[y], labels=(0, 1)))
     for i in range(params['maxIter']):
-        dl_dx = central_difference(model, y, x, params['h'])
-        print(dl_dx)
+        dl_dx = central_difference(model, loss, y, x, params['h'])
         x_last = x
         iters = i
 
@@ -74,12 +72,10 @@ def gradient_attack(model: Callable, x: np.array, y: int, params: dict, gradient
             iters = i + 1
             break
 
-    print(x,  log_loss(y_pred=model.predict(np.array([x])), y_true=[y], labels=(0, 1)))
-
-    return x, y, iters
+    return x, iters
 
 
-def poison_model(model: Callable, x: np.array, y, attack: str) -> Array: # assumes loss is parameterised by model
+def poison_model(model: Callable, loss: Callable, X_train: pd.DataFrame, y, attack: str, num_data: int) -> Array:
     """
     :param model: The model to be used, won't be altered
     :param attack: A string which defines the attack type
@@ -87,11 +83,26 @@ def poison_model(model: Callable, x: np.array, y, attack: str) -> Array: # assum
              Also True if convergence, False otherwise.
     """
 
+    assert hasattr(model, 'fit')
+
     params = solver_params()
-    if attack == 'maximum':
-        return gradient_attack(model, x, y, params, lambda dir: dir)
-    elif attack == 'fast sign':
-        return gradient_attack(model, params, lambda dir: np.sign(dir))
+    X_po, loss_history, iters = [], [], []
+    for _ in range(num_data):
+        x = np.array([X_train.iloc[np.random.randint(0, X_train.shape[0])]])
+        if attack == 'FGSM':
+            xp, i = gradient_attack(model, loss, lambda dir: np.sign(dir), x, y, params)
+        else:
+            xp, i = gradient_attack(model, loss, lambda dir: dir / np.linalg.norm(dir, 2), x, y, params)
+
+        model.fit(xp, np.array([y]))
+
+        print(loss(y_pred=model.predict(x), y_true=[y], labels=(0, 1)))
+        print(loss(y_pred=model.predict(xp), y_true=[y], labels=(0, 1)))
+        #loss_history.append()
+        X_po.append(x)
+        iters.append(i)
+
+    return X_po, loss_history, iters
 
 
 def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
@@ -159,31 +170,30 @@ def plot() -> None:
     X_train, X_eval, y_train, y_eval = preprocess_UNSW()
 
     dnn = CustomNN()
+    cnn = CNN_Model(X_train, y_train)
     dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy)
+    cnn.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=['accuracy'])
 
-    models = {'SVC': svm.SVC(), 'RANDOM FOREST': RandomForestClassifier(), 'DNN': dnn}
-    loss_funcs = {'SVC': hinge_loss, 'RANDOM FOREST':  tf.losses.binary_crossentropy, 'DNN': tf.losses.binary_crossentropy}
+    models = {'DNN': dnn, 'CNN': cnn}
+    loss_funcs = {'DNN': log_loss, 'CNN': log_loss}
 
-    #X_train = X_train.iloc[0:50, :]        # commented out for speed
-    #y_train = y_train.iloc[0:50, :]
-    #X_eval = X_eval.iloc[0:50, :]
-    #y_eval = y_eval.iloc[0:50, :]
+    X_train = X_train.iloc[0:50, :]        # commented out for speed
+    y_train = y_train.iloc[0:50, :]
+    X_eval = X_eval.iloc[0:50, :]
+    y_eval = y_eval.iloc[0:50, :]
 
-    models['DNN'].fit(np.array(X_train), np.array(y_train))
+    models['DNN'].fit(X_train, y_train)
+    models['CNN'].fit(X_train, y_train)
 
-    # model posioning
-    print(poison_model(models['DNN'], np.array([X_train.iloc[0]]), np.mod(y_train.iloc[0] + 1, 2)[0], 'maximum'))
-
-    #print(loss_grad(models['DNN'], X_train, y_train))
-    #models['SVC'].fit(np.array(X_train), y_train.values.ravel())
-    #models['RANDOM FOREST'].fit(np.array(X_train), y_train.values.ravel())
+    # model poisoning
+    yp = np.mod(y_train.iloc[0] + 1, 2)[0]
+    #Xp = poison_model(models['DNN'], loss_funcs['DNN'], X_train, yp, 'FGSM', 1)
 
     print('after training metrics')
     #print('dnn', evaluation_metrics(dnn, X_eval, y_eval))
     #print('svc', evaluation_metrics(models['SVC'], X_eval, y_eval))
     #print('random forest', evaluation_metrics(models['RANDOM FOREST'], X_eval, y_eval))
 
-    # there will be many plots : )
     recompute = True
     for n, m in enumerate(models):
         if n == 1:  # only do svm because it easier to see

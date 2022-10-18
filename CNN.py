@@ -1,24 +1,10 @@
-import pdb
-import os
-import re
-import pandas as pd
-import numpy as np
-import time
+import tensorflow as tf
 
-from numpy import mean
 from numpy import dstack
-from numpy import loadtxt
-from keras.models import Sequential
-from keras.layers import Dense
-from keras.layers import Flatten
-from keras.layers.convolutional import Conv1D
-from keras.layers.convolutional import MaxPooling1D
-from keras.utils import to_categorical
-from sklearn import model_selection
 from numpy import loadtxt
 from keras.utils import to_categorical
 from sklearn.model_selection import train_test_split
-from sklearn.utils import shuffle
+
 
 def Load(split=0.2, seed=760):
 
@@ -53,28 +39,25 @@ def Load(split=0.2, seed=760):
     return trainX, trainY, testX, testY
 
 
-def CNN_Model(trainX, trainY, testX, testY):
-    n_features, n_added_dimension, n_outputs = trainX.shape[1], trainX.shape[2], trainY.shape[1]
-    model = Sequential()
+def CNN_Model(trainX, trainY):
+    n_features, n_added_dimension, n_outputs = trainX.shape[1], trainX.shape[0], trainY.shape[1]
+    model = tf.keras.models.Sequential()
     # First Conv Layer
-    model.add(Conv1D(filters=32, kernel_size=3, activation='relu', input_shape=(n_features, n_added_dimension)))
+    model.add(tf.keras.layers.Conv1D(filters=32, kernel_size=3, activation='relu', input_shape=(n_features, n_added_dimension)))
     # Second Conv Layer
-    model.add(Conv1D(filters=64, kernel_size=3, activation='relu'))
+    model.add(tf.keras.layers.Conv1D(filters=64, kernel_size=3, activation='relu'))
     # Maxpooling Layer
-    model.add(MaxPooling1D(pool_size=2))
+    model.add(tf.keras.layers.MaxPooling1D(pool_size=2))
     # Third Conv Layer
-    model.add(Conv1D(filters=128, kernel_size=3, activation='relu'))
+    model.add(tf.keras.layers.Conv1D(filters=128, kernel_size=3, activation='relu'))
     # Maxpooling Layer
-    model.add(MaxPooling1D(pool_size=2))
+    model.add(tf.keras.layers.MaxPooling1D(pool_size=2))
     # flatten layer
-    model.add(Flatten())
+    model.add(tf.keras.layers.Flatten())
     # first dense layer
-    model.add(Dense(50, activation='relu'))
+    model.add(tf.keras.layers.Dense(50, activation='relu'))
     # second dense layer
-    model.add(Dense(n_outputs, activation='softmax'))
-    # compile model
-    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-    # fit model
-    model.fit(trainX, trainY, epochs=epochs, batch_size=batch_size, verbose=0)
+    model.add(tf.keras.layers.Dense(n_outputs, activation='softmax'))    # compile model
 
     return model
+
