@@ -60,4 +60,3 @@ def CNN_Model(trainX, trainY):
     model.add(tf.keras.layers.Dense(n_outputs, activation='softmax'))    # compile model
 
     return model
-

@@ -5,7 +5,7 @@ from sklearn import svm
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import log_loss, hinge_loss, accuracy_score, confusion_matrix
 
-from typing import Callable, List, Any
+from typing import Callable, List, Any, Optional
 
 from NN_model import *
 
@@ -17,7 +17,7 @@ def solver_params() -> dict:
     :return: Hyper parameters for posioning attack
     """
 
-    return {'maxIter': 100, 'tol': np.power(10.0, -10), 'eta': 1, 'high': 1, 'low': 0, 'h': np.power(10.0, -4)}
+    return {'maxIter': 100, 'tol': np.power(10.0, -10), 'eta': 0.5, 'high': 1, 'low': 0, 'h': np.power(10.0, -4)}
 
 
 def evaluation_metrics(model, X_eval: Array, y_eval: Array) -> dict:
@@ -36,46 +36,68 @@ def evaluation_metrics(model, X_eval: Array, y_eval: Array) -> dict:
             'false negative': fn, 'true positive': tp}
 
 
-def central_difference(model: Callable, loss: Callable, y: int, x: np.array, h: float) -> np.array:
-    assert hasattr(model, 'loss')
-
+def loss_central_difference(model: Callable, x: np.array, h: float, y: int, loss: Callable) -> np.array:
     dldx = []
-
     for i, xi in enumerate(x):
-        x[i] = xi + h
-        L0 = loss(y_pred=model.predict(x), y_true=[y], labels=(0, 1))
         x[i] = xi - h
-        L1 = loss(y_pred=model.predict(x), y_true=[y], labels=(0, 1))
+        L0 = loss(y_pred=model.predict(np.array([x])), y_true=[y], labels=(0, 1))
+        x[i] = xi + h
+        L1 = loss(y_pred=model.predict(np.array([x])), y_true=[y], labels=(0, 1))
         dldx.append((L1 - L0)/2*h)
         x[i] = xi
 
     return np.array(dldx)
 
 
-def gradient_attack(model: Callable, loss: Callable, gradient: Callable, x: np.array, y: int, params: dict) -> tuple[np.array, int]:
+def model_central_difference(model: Callable, x: np.array, h: float, *args):
+    dfdx = []
+    for i, xi in enumerate(x):
+        x[i] = xi - h
+        L0 = model.predict(np.array([x]))
+        x[i] = xi + h
+        L1 = model.predict(np.array([x]))
+        dfdx.append((L1[0][0] - L0[0][0])/2*h)
+        x[i] = xi
+
+    return np.array(dfdx)
+
+
+def gradient_attack(model: Callable, loss: Callable, gradient: Callable,
+                    x: np.array, y: int, params: dict,
+                    stop: Union[Callable, bool], dx: Callable) -> tuple[np.array, int]:
     """
+    :param y:
+    :param loss:
+    :param x:
+    :param stop:
+    :param derivative:
     :param model: model which can compute gradient (will make wrapper class later for SVM and RANDOM FOREST)
-    :param gradient: a callable which defines how the algorithm handles dl_dx and dx_dw
+    :param gradient:
     :param params: model parameters, like the tolerance
     :return: Feature, label, boolean; see poison_model comment
     """
 
     iters = 0
+    f0 = model.predict(np.array([x]))
+    f1 = f0
     for i in range(params['maxIter']):
-        dl_dx = central_difference(model, loss, y, x, params['h'])
+        derivative = dx(model, x, params['h'], y, loss)
+
         x_last = x
         iters = i
 
         # performs gradient ascent like method, depends on implementation of gradient function
-        x = x + params['eta'] * gradient(dl_dx)
-        if np.linalg.norm(x - x_last, 2) < params['tol']:
+        x = x + params['eta'] * gradient(f1, derivative, y)[0]
+        f1 = model.predict(np.array([x]))
+        #print(f1, f0, y, myround(f0))
+        if max([np.linalg.norm(x - x_last, 2)]) < params['tol'] or stop(f0, f1):
             iters = i + 1
             break
 
     return x, iters
 
 
-def poison_model(model: Callable, loss: Callable, X_train: pd.DataFrame, y, attack: str, num_data: int) -> Array:
+def poison_model(model: Callable, loss: Callable, data: tuple, attack: str, num_data: int) -> tuple:
     """
     :param model: The model to be used, won't be altered
     :param attack: A string which defines the attack type
@@ -83,31 +105,46 @@ def poison_model(model: Callable, loss: Callable, X_train: pd.DataFrame, y, atta
              Also True if convergence, False otherwise.
     """
 
-    assert hasattr(model, 'fit')
+    assert hasattr(model, 'fit') and len(data) == 4
+
+    if attack == 'FGSM':
+        func, stop = lambda val, dir, y: np.sign(dir), lambda y1, y2: False
+        dx = loss_central_difference
+    elif attack == 'DeepFool':
+        func, stop = lambda val, dir, y: np.power(-1, y + 1) * dir * (val/np.linalg.norm(dir, 2)), lambda y1, y2: myround(y1) != myround(y2)
+        dx = model_central_difference
+    elif attack == 'Norm':
+        func, stop = lambda val, dir, y: dir / np.linalg.norm(dir, 2), lambda y1, y2: False
+        dx = loss_central_difference
+    else:
+        raise ValueError("Invalid attack type")
 
     params = solver_params()
-    X_po, loss_history, iters = [], [], []
+    X_train, y_train, X_eval, y_eval = data
+    X_po, y_po, loss_history, iters = [], [], [], []
     for _ in range(num_data):
-        x = np.array([X_train.iloc[np.random.randint(0, X_train.shape[0])]])
-        if attack == 'FGSM':
-            xp, i = gradient_attack(model, loss, lambda dir: np.sign(dir), x, y, params)
-        else:
-            xp, i = gradient_attack(model, loss, lambda dir: dir / np.linalg.norm(dir, 2), x, y, params)
+        k = np.random.randint(0, X_train.shape[0])
+        x = np.array([X_train.iloc[k]][0])
+        yp = np.mod(y_train.iloc[k] + 1, 2)[0]
 
-        model.fit(xp, np.array([y]))
+        xp, i = gradient_attack(model, loss, func, x, yp, params, stop, dx=dx)
 
-        print(loss(y_pred=model.predict(x), y_true=[y], labels=(0, 1)))
-        print(loss(y_pred=model.predict(xp), y_true=[y], labels=(0, 1)))
-        #loss_history.append()
+        model.fit(np.array([xp]), np.array([yp]))
+
+        test_loss = loss(y_pred=model.predict(np.array([xp])), y_true=np.array([yp]), labels=(0, 1))
+        #train_loss = loss(y_pred=model.predict(X_eval), y_true=y_eval, labels=(0, 1))
+
+        loss_history.append(test_loss)
         X_po.append(x)
+        y_po.append(yp)
         iters.append(i)
 
-    return X_po, loss_history, iters
+    return X_po, y_po, loss_history, iters
 
 
 def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
                 X_test: pd.DataFrame, y_test: pd.DataFrame,
-                loss_func: Callable, attack_type: str = False) -> tuple[list, dict]:
+                loss_func: Callable) -> tuple[list, dict]:
     """
         :objective iteratively trains a SVC on dataset and poisons the dataset
         :return: model performance over iteration of posioning 
@@ -170,11 +207,11 @@ def plot() -> None:
     X_train, X_eval, y_train, y_eval = preprocess_UNSW()
 
     dnn = CustomNN()
-    cnn = CNN_Model(X_train, y_train)
+    #cnn = CNN_Model(X_train, y_train)
     dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy)
-    cnn.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=['accuracy'])
+    #cnn.compile(optimizer='Adam', loss=tf.keras.losses.binary_crossentropy, metrics=['true positive'])
 
-    models = {'DNN': dnn, 'CNN': cnn}
+    models = {'DNN': dnn}
     loss_funcs = {'DNN': log_loss, 'CNN': log_loss}
 
     X_train = X_train.iloc[0:50, :]        # commented out for speed
@@ -183,11 +220,19 @@ def plot() -> None:
     y_eval = y_eval.iloc[0:50, :]
 
     models['DNN'].fit(X_train, y_train)
-    models['CNN'].fit(X_train, y_train)
+    #models['CNN'].fit(X_train, y_train)
 
     # model poisoning
-    yp = np.mod(y_train.iloc[0] + 1, 2)[0]
-    #Xp = poison_model(models['DNN'], loss_funcs['DNN'], X_train, yp, 'FGSM', 1)
+    #fX, fy, fl_hist, fi = poison_model(models['DNN'], loss_funcs['DNN'], (X_train, y_train, X_eval, y_eval), 'FGSM', 1)
+    dX, dy, dl_hist, di = poison_model(models['DNN'], loss_funcs['DNN'], (X_train, y_train, X_eval, y_eval), 'DeepFool', 1)
+
+    print(di)
+
+    plt.plot([np.linalg.norm(x, 2) for x in dX], linewidth=3, linestyle='solid', marker='o', markersize=9)
+    plt.ylabel('||x||')
+    plt.xlabel(r'k')
+    plt.xticks(ticks=range(len(dX)))
+    plt.show()
 
     print('after training metrics')
     #print('dnn', evaluation_metrics(dnn, X_eval, y_eval))
@@ -196,8 +241,6 @@ def plot() -> None:
 
     recompute = True
     for n, m in enumerate(models):
-        if n == 1:  # only do svm because it easier to see
-            break
         # load loss history or compute and save it
         if os.path.exists(f"{m}") and not recompute:
             loss_history = np.loadtxt(f"loss--{m}")
@@ -218,5 +261,6 @@ def plot() -> None:
             np.savetxt(f"{m} {metric_name}", hist)
 
     plt.show()
+
 
 plot()
