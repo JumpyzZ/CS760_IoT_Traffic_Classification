@@ -89,7 +89,7 @@ def gradient_attack(model: Callable, loss: Callable, gradient: Callable,
         # performs gradient ascent like method, depends on implementation of gradient function
         x = x + params['eta'] * gradient(f1, derivative, y)[0]
         f1 = model.predict(np.array([x]))
-        #print(f1, f0, y, myround(f0))
+        print(f1, f0, y, myround(f0))
         if max([np.linalg.norm(x - x_last, 2)]) < params['tol'] or stop(f0, f1):
             iters = i + 1
             break
@@ -207,11 +207,14 @@ def plot() -> None:
     X_train, X_eval, y_train, y_eval = preprocess_UNSW()
 
     dnn = CustomNN()
-    #cnn = CNN_Model(X_train, y_train)
+    cnn = CNN_Model(X_train, y_train)
     dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy)
-    #cnn.compile(optimizer='Adam', loss=tf.keras.losses.binary_crossentropy, metrics=['true positive'])
+    cnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy)
 
-    models = {'DNN': dnn}
+    while True:
+        continue
+
+    models = {'DNN': dnn, 'cnn': cnn}
     loss_funcs = {'DNN': log_loss, 'CNN': log_loss}
 
     X_train = X_train.iloc[0:50, :]        # commented out for speed
