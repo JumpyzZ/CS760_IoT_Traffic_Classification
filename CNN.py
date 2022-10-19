@@ -47,11 +47,11 @@ def CNN_Model(trainX, trainY):
     # Second Conv Layer
     model.add(tf.keras.layers.Conv1D(filters=64, kernel_size=3, activation='relu'))
     # Maxpooling Layer
-    model.add(tf.keras.layers.MaxPooling1D(pool_size=2))
+    model.add(tf.keras.layers.MaxPooling1D(pool_size=2, padding='same'))
     # Third Conv Layer
     model.add(tf.keras.layers.Conv1D(filters=128, kernel_size=3, activation='relu'))
     # Maxpooling Layer
-    model.add(tf.keras.layers.MaxPooling1D(pool_size=2))
+    model.add(tf.keras.layers.MaxPooling1D(pool_size=2, padding='same'))
     # flatten layer
     model.add(tf.keras.layers.Flatten())
     # first dense layer
