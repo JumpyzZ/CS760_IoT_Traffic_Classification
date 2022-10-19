@@ -17,7 +17,7 @@ def solver_params() -> dict:
     :return: Hyper parameters for posioning attack
     """
 
-    return {'maxIter': 100, 'tol': np.power(10.0, -10), 'eta': 0.5, 'high': 1, 'low': 0, 'h': np.power(10.0, -4)}
+    return {'maxIter': 100, 'tol': np.power(10.0, -10), 'eta': 1, 'high': 1, 'low': 0, 'h': np.power(10.0, -4)}
 
 
 def evaluation_metrics(model, X_eval: Array, y_eval: Array) -> dict:
@@ -89,7 +89,6 @@ def gradient_attack(model: Callable, loss: Callable, gradient: Callable,
         # performs gradient ascent like method, depends on implementation of gradient function
         x = x + params['eta'] * gradient(f1, derivative, y)[0]
         f1 = model.predict(np.array([x]))
-        print(f1, f0, y, myround(f0))
         if max([np.linalg.norm(x - x_last, 2)]) < params['tol'] or stop(f0, f1):
             iters = i + 1
             break
@@ -111,7 +110,8 @@ def poison_model(model: Callable, loss: Callable, data: tuple, attack: str, num_
         func, stop = lambda val, dir, y: np.sign(dir), lambda y1, y2: False
         dx = loss_central_difference
     elif attack == 'DeepFool':
-        func, stop = lambda val, dir, y: np.power(-1, y + 1) * dir * (val/np.linalg.norm(dir, 2)), lambda y1, y2: myround(y1) != myround(y2)
+        func = lambda val, dir, y: np.power(-1, y + 1) * dir * (val/np.linalg.norm(dir, 2))
+        stop = lambda y1, y2: myround(y1) != myround(y2)
         dx = model_central_difference
     elif attack == 'Norm':
         func, stop = lambda val, dir, y: dir / np.linalg.norm(dir, 2), lambda y1, y2: False
@@ -123,9 +123,12 @@ def poison_model(model: Callable, loss: Callable, data: tuple, attack: str, num_
     X_train, y_train, X_eval, y_eval = data
     X_po, y_po, loss_history, iters = [], [], [], []
     for _ in range(num_data):
-        k = np.random.randint(0, X_train.shape[0])
-        x = np.array([X_train.iloc[k]][0])
-        yp = np.mod(y_train.iloc[k] + 1, 2)[0]
+        for _ in range(100):
+            k = np.random.randint(0, X_train.shape[0])
+            x = np.array([X_train.iloc[k]][0])
+            yp = np.mod(y_train.iloc[k] + 1, 2)[0]
+            if myround(model.predict(np.array([x])))[0] == y_train.iloc[k].values[0]:
+                break
 
         xp, i = gradient_attack(model, loss, func, x, yp, params, stop, dx=dx)
 
@@ -207,14 +210,11 @@ def plot() -> None:
     X_train, X_eval, y_train, y_eval = preprocess_UNSW()
 
     dnn = CustomNN()
-    cnn = CNN_Model(X_train, y_train)
+    #cnn = CNN_Model(X_train, y_train)
     dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy)
-    cnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy)
+    #cnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy)
 
-    while True:
-        continue
-
-    models = {'DNN': dnn, 'cnn': cnn}
+    models = {'DNN': dnn}
     loss_funcs = {'DNN': log_loss, 'CNN': log_loss}
 
     X_train = X_train.iloc[0:50, :]        # commented out for speed
@@ -225,22 +225,28 @@ def plot() -> None:
     models['DNN'].fit(X_train, y_train)
     #models['CNN'].fit(X_train, y_train)
 
-    # model poisoning
-    #fX, fy, fl_hist, fi = poison_model(models['DNN'], loss_funcs['DNN'], (X_train, y_train, X_eval, y_eval), 'FGSM', 1)
-    dX, dy, dl_hist, di = poison_model(models['DNN'], loss_funcs['DNN'], (X_train, y_train, X_eval, y_eval), 'DeepFool', 1)
-
-    print(di)
-
-    plt.plot([np.linalg.norm(x, 2) for x in dX], linewidth=3, linestyle='solid', marker='o', markersize=9)
-    plt.ylabel('||x||')
-    plt.xlabel(r'k')
-    plt.xticks(ticks=range(len(dX)))
-    plt.show()
-
     print('after training metrics')
     #print('dnn', evaluation_metrics(dnn, X_eval, y_eval))
     #print('svc', evaluation_metrics(models['SVC'], X_eval, y_eval))
     #print('random forest', evaluation_metrics(models['RANDOM FOREST'], X_eval, y_eval))
+
+    # model poisoning
+    for name, model in models.items():
+        fX, fy, fl_hist, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 2)
+        dX, dy, dl_hist, di = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 2)
+        #nX, ny, nl_hist, ni = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'Norm', 1)
+
+        plt.plot([np.linalg.norm(x, 2) for x in fX], linewidth=3, linestyle='solid', marker='o', markersize=9)
+        plt.plot([np.linalg.norm(x, 2) for x in dX], linewidth=3, linestyle='dotted', marker='o', markersize=9)
+        #plt.plot([np.linalg.norm(x, 2) for x in nX], linewidth=3, linestyle='dashed', marker='o', markersize=9)
+        plt.ylabel('||x||')
+        plt.xlabel(r'k')
+        plt.xticks(ticks=range(len(dX)))
+
+    print('after poisoning')
+    # #
+
+    plt.show()
 
     recompute = True
     for n, m in enumerate(models):
