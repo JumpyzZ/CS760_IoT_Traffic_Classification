@@ -1,9 +1,9 @@
 import matplotlib.pyplot as plt
 
-from CNN import *
+from CNN_new import CNN_Model
 from sklearn import svm
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import log_loss, hinge_loss, accuracy_score, confusion_matrix
+from sklearn.metrics import log_loss, confusion_matrix, plot_roc_curve
 
 from typing import Callable, List, Any, Optional
 
@@ -17,7 +17,7 @@ def solver_params() -> dict:
     :return: Hyper parameters for posioning attack
     """
 
-    return {'maxIter': 100, 'tol': np.power(10.0, -10), 'eta': 1, 'high': 1, 'low': 0, 'h': np.power(10.0, -4)}
+    return {'maxIter': 100, 'tol': np.power(10.0, -10), 'eta': 0.1, 'high': 1, 'low': 0, 'h': np.power(10.0, -4)}
 
 
 def evaluation_metrics(model, X_eval: Array, y_eval: Array) -> dict:
@@ -32,8 +32,7 @@ def evaluation_metrics(model, X_eval: Array, y_eval: Array) -> dict:
     y_pred = myround(model.predict(X_eval))
     tn, fp, fn, tp = confusion_matrix(y_eval, y_pred, labels=[0, 1], normalize='all').ravel()
 
-    return {'accuracy': accuracy_score(y_eval, y_pred), 'true negative': tn, 'false positive': fp,
-            'false negative': fn, 'true positive': tp}
+    return {'true negative': tn, 'false positive': fp, 'false negative': fn, 'true positive': tp}
 
 
 def loss_central_difference(model: Callable, x: np.array, h: float, y: int, loss: Callable) -> np.array:
@@ -147,7 +146,7 @@ def poison_model(model: Callable, loss: Callable, data: tuple, attack: str, num_
 
 def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
                 X_test: pd.DataFrame, y_test: pd.DataFrame,
-                loss_func: Callable) -> tuple[list, dict]:
+                loss_func: Callable, epoch_num: int, epoch_length: int) -> tuple[list, dict]:
     """
         :objective iteratively trains a SVC on dataset and poisons the dataset
         :return: model performance over iteration of posioning 
@@ -155,8 +154,6 @@ def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
 
     assert hasattr(model, 'fit') and hasattr(model, 'predict')
 
-    epoch_length = 10    # the number of sample points in any epoch
-    epoch_num = 0   # the number of epochs that the model will be trained over
     epoch_batch = [[], np.array([]), [], np.array([])]  # X_train. y_train, X_test, y_test
     loss_record = [[], []]  # generalisation and training loss arrays
     metrics = {'accuracy': [], 'true negative': [], 'false positive': [], 'false negative': [], 'true positive': []}    # performance metrics
@@ -169,9 +166,13 @@ def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
         epoch_batch[1] = np.append(epoch_batch[1], ytr, axis=0)
         epoch_batch[2] = append(epoch_batch[2], xte)
         epoch_batch[3] = np.append(epoch_batch[3], yte, axis=0)
+
+        if epoch_num == n:
+            return loss_record, metrics
+
         # if next epoch has been reached train model on all data seen so far
-        if np.mod(n, epoch_length) == 1 and n != 1:
-            x = np.array(epoch_batch[0])
+        if np.mod(n, epoch_length) == 0:
+            print("...")
             model.fit(np.array(epoch_batch[0]), epoch_batch[1])
 
             # acquire generalisation and training loss
@@ -182,94 +183,104 @@ def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
             for name, value in evaluation_metrics(model, epoch_batch[0], epoch_batch[1]).items():
                 metrics[name].append(value)
 
-            # stop after 10 epochs
-            epoch_num += 1
-            if epoch_num == 3:
-                return loss_record, metrics
-
     return loss_record, metrics
 
 
-def plot() -> None:
+def poisoning_plot(models: dict, loss_funcs: dict):
+    X_train, X_eval, y_train, y_eval = preprocess_UNSW()
+
+    for name, model in models.items():
+        # fX, fy, fl_hist, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 2)
+        dX, dy, dl_hist, di = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 2)
+        # nX, ny, nl_hist, ni = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'Norm', 1)
+        # plt.plot([np.linalg.norm(x, 2) for x in fX], linewidth=3, linestyle='solid', marker='o', markersize=9)
+        plt.plot([np.linalg.norm(x, 2) for x in dX], linewidth=3, linestyle='dotted', marker='o', markersize=9)
+        # plt.plot(np.linalg.norm(x, 2))
+        # plt.plot([np.linalg.norm(x, 2) for x in nX], linewidth=3, linestyle='dashed', marker='o', markersize=9)
+        plt.ylabel('||x||')
+        plt.xlabel(r'k')
+        plt.xticks(ticks=range(len(dX)))
+
+
+def epoch_plots(models: dict, loss_funcs: dict, recompute: bool = True):
+    epoch_length = 10    # the number of sample points in any epoch
+    epoch_num = 0   # the number of epochs that the model will be trained over
+
+    fig, axs = plt.subplots(nrows=2, ncols=1)
+    fig2, axs2 = plt.subplots(nrows=2, ncols=1)
+    for name, model in models.items():
+        # load loss history or compute and save it
+        if os.path.exists(f"{model}") and not recompute:
+            loss_history = np.loadtxt(f"loss--{model}")
+            performance_history = np.loadtxt(f"performance--{model}") # no load atm
+        else:
+            loss_history, performance_history = train_model(model, X_train, y_train, X_eval, y_eval, loss_funcs[name], epoch_num, epoch_length)
+            np.savetxt(f"loss--{name}", loss_history) # uncomment when returns
+
+        axs[0].plot(loss_history[0], label=name, linewidth=3, linestyle='solid', marker='o', markersize=9)
+        axs[1].plot(loss_history[1], label=name, linewidth=3, linestyle='solid', marker='o', markersize=9)
+
+        #axs2[0].plot(performance_history['true positive'], label=name, linewidth=3, linestyle='solid', marker='o', markersize=9)
+
+
+def performance_plot() -> None:
     """
     :return: trains each model using train_model in a batch style and plots the loss over epochs, displays
              the accuracy metrics
     """
 
-    def meta_config(title: str, ylabel: str) -> None:
-        # meta configuration of the plots; make them look nice
-        plt.figure(figsize=(4, 4))
-        plt.title(title, fontsize=25)
-
-        plt.legend(fontsize=20)
-        plt.xticks(fontsize=20)
-        plt.yticks(fontsize=20)
-        plt.ylabel(ylabel, fontsize=25)
-        plt.xlabel('Epoch', fontsize=25)
-
-    X_train, X_eval, y_train, y_eval = preprocess_UNSW()
-
-    dnn = CustomNN()
-    #cnn = CNN_Model(X_train, y_train)
-    dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy)
-    #cnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy)
-
-    models = {'DNN': dnn}
-    loss_funcs = {'DNN': log_loss, 'CNN': log_loss}
-
-    X_train = X_train.iloc[0:50, :]        # commented out for speed
-    y_train = y_train.iloc[0:50, :]
-    X_eval = X_eval.iloc[0:50, :]
-    y_eval = y_eval.iloc[0:50, :]
-
     models['DNN'].fit(X_train, y_train)
-    #models['CNN'].fit(X_train, y_train)
+    models['CNN'].fit(X_train, y_train)
 
     print('after training metrics')
-    #print('dnn', evaluation_metrics(dnn, X_eval, y_eval))
-    #print('svc', evaluation_metrics(models['SVC'], X_eval, y_eval))
-    #print('random forest', evaluation_metrics(models['RANDOM FOREST'], X_eval, y_eval))
+    dnn_metrics = evaluation_metrics(dnn, X_eval, y_eval)
+    cnn_metrics = evaluation_metrics(cnn, X_eval, y_eval)
+    print('dnn', dnn_metrics)
+    print('cnn', cnn_metrics)
 
-    # model poisoning
-    for name, model in models.items():
-        fX, fy, fl_hist, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 2)
-        dX, dy, dl_hist, di = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 2)
-        #nX, ny, nl_hist, ni = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'Norm', 1)
+    plt.figure()
 
-        plt.plot([np.linalg.norm(x, 2) for x in fX], linewidth=3, linestyle='solid', marker='o', markersize=9)
-        plt.plot([np.linalg.norm(x, 2) for x in dX], linewidth=3, linestyle='dotted', marker='o', markersize=9)
-        #plt.plot([np.linalg.norm(x, 2) for x in nX], linewidth=3, linestyle='dashed', marker='o', markersize=9)
-        plt.ylabel('||x||')
-        plt.xlabel(r'k')
-        plt.xticks(ticks=range(len(dX)))
+    fig, ax = plt.subplots()
+    x = np.arange(len(dnn_metrics))
+    width = 0.35  # the width of the bars
+    rects1 = ax.bar(x - width / 2, list(dnn_metrics.values()), width, label='DNN')
+    rects2 = ax.bar(x + width / 2, list(cnn_metrics.values()), width, label='CNN')
 
-    print('after poisoning')
-    # #
+    # Add some text for labels, title and custom x-axis tick labels, etc.
+    ax.set_ylabel('Scores', fontsize=15)
+    ax.set_title('Model Performance metrics', fontsize=15)
+    ax.set_xticks(x, list(dnn_metrics.keys()), fontsize=15)
+    ax.set_ylim(0, 1)
+    ax.legend()
 
-    plt.show()
+    ax.bar_label(rects1, padding=3)
+    ax.bar_label(rects2, padding=3)
 
-    recompute = True
-    for n, m in enumerate(models):
-        # load loss history or compute and save it
-        if os.path.exists(f"{m}") and not recompute:
-            loss_history = np.loadtxt(f"loss--{m}")
-            performance_history = np.loadtxt(f"performance--{m}") # no load atm
-        else:
-            loss_history, performance_history = train_model(models[m], X_train, y_train, X_eval, y_eval, loss_funcs[m])
-            np.savetxt(f"loss--{m}", loss_history) # uncomment when returns
+    fig.tight_layout()
 
-        # need to get name of loss somehow
-        meta_config(f'{m} Loss', 'Loss')
-        plt.plot(loss_history[0], loss_history[1], label='no posioning', linewidth=3, linestyle='solid', marker='o', markersize=9)
-        plt.legend()
+    #plt.figure()
+    #m = tf.keras.metrics.AUC(curve='ROC')
+    #m.update_state(y_eval, models['DNN'].predict(X_eval))
 
-        for metric_name, hist in performance_history.items():
-            meta_config(f'{m} {metric_name}', f'{metric_name}')
-            plt.plot(hist, label=f'no posioning', linewidth=3, marker='o', linestyle='solid', markersize=9)
-            plt.legend()
-            np.savetxt(f"{m} {metric_name}", hist)
+    #plot_roc_curve(dnn, X_eval, y_eval)
 
     plt.show()
 
 
-plot()
+X_train, X_eval, y_train, y_eval = preprocess_UNSW()
+
+n = X_train.shape[1]
+dnn = CustomNN(n, tf.keras.initializers.he_uniform)
+cnn = CNN_Model(n, 2)
+dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy, metrics=[tf.metrics.TruePositives()])
+cnn.compile(loss=tf.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
+
+models = {'DNN': dnn, 'CNN': cnn}
+loss_funcs = {'DNN': log_loss, 'CNN': log_loss}
+
+X_train = X_train.iloc[0:50, :]        # for speed
+y_train = y_train.iloc[0:50, :]
+X_eval = X_eval.iloc[0:50, :]
+y_eval = y_eval.iloc[0:50, :]
+
+performance_plot()
