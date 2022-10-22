@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from CNN_new import CNN_Model
 from LSTM import LSTM_model
@@ -78,7 +79,7 @@ def gradient_attack(model: Callable, loss: Callable, gradient: Callable,
     """
 
     iters = 0
-    f0 = model.predict(np.array([x]))
+    f0 = model.predict(np.array([x]), verbose=0)
     f1 = f0
     for i in range(params['maxIter']):
         derivative = dx(model, x, params['h'], y, loss)
@@ -88,7 +89,7 @@ def gradient_attack(model: Callable, loss: Callable, gradient: Callable,
 
         # performs gradient ascent like method, depends on implementation of gradient function
         x = x + params['eta'] * gradient(f1, derivative, y)[0]
-        f1 = model.predict(np.array([x]))
+        f1 = model.predict(np.array([x]), verbose=0)
         if max([np.linalg.norm(x - x_last, 2)]) < params['tol'] or stop(f0, f1):
             iters = i + 1
             break
@@ -121,7 +122,7 @@ def poison_model(model: Callable, loss: Callable, data: tuple, attack: str, num_
 
     params = solver_params()
     X_train, y_train, X_eval, y_eval = data
-    X_po, y_po, loss_history, iters = [], [], [], []
+    X_po, y_po, model_confidences = [], [], [[], []]
     for _ in range(num_data):
         for _ in range(100):
             k = np.random.randint(0, X_train.shape[0])
@@ -130,19 +131,24 @@ def poison_model(model: Callable, loss: Callable, data: tuple, attack: str, num_
             if myround(model.predict(np.array([x])))[0] == y_train.iloc[k].values[0]:
                 break
 
+        model_confidences[0].append(model.predict(np.array([x]), verbose=0)[0][0])
         xp, i = gradient_attack(model, loss, func, x, yp, params, stop, dx=dx)
+        model_confidences[1].append(model.predict(np.array([xp]), verbose=0)[0][0])
 
-        model.fit(np.array([xp]), np.array([yp]))
-
-        test_loss = loss(y_pred=model.predict(np.array([xp])), y_true=np.array([yp]), labels=(0, 1))
-        #train_loss = loss(y_pred=model.predict(X_eval), y_true=y_eval, labels=(0, 1))
-
-        loss_history.append(test_loss)
-        X_po.append(x)
+        X_po.append(xp)
         y_po.append(yp)
-        iters.append(i)
 
-    return X_po, y_po, loss_history, iters
+        model.fit(np.array([xp]), np.array([yp]), verbose=0)
+
+        sample_loss = loss(y_pred=model.predict(np.array([xp]), verbose=0), y_true=np.array([yp]), labels=(0, 1))
+        test_loss = loss(y_pred=model.predict(X_eval, verbose=0), y_true=y_eval, labels=(0, 1))
+
+
+
+    # model confidence in sample before/after
+    # sample itself
+
+    return np.array(X_po), np.array(y_po), model_confidences
 
 
 def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
@@ -186,20 +192,34 @@ def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
     return loss_record, metrics
 
 
-def poisoning_plot(models: dict, loss_funcs: dict):
-    X_train, X_eval, y_train, y_eval = preprocess_UNSW()
+def defensive_mechanism(X_train: pd.DataFrame, X_po: pd.DataFrame):
+    mu = np.mean(X_train, axis=1)
+    std = np.std(X_train, axis=1)
 
+
+def poisoning_plot():
+    fig1, axs1 = plt.subplots()
+    fig2, axs2 = plt.subplots()
     for name, model in models.items():
         # fX, fy, fl_hist, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 2)
-        dX, dy, dl_hist, di = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 2)
+        dX, dy, dc = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 2)
         # nX, ny, nl_hist, ni = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'Norm', 1)
         # plt.plot([np.linalg.norm(x, 2) for x in fX], linewidth=3, linestyle='solid', marker='o', markersize=9)
-        plt.plot([np.linalg.norm(x, 2) for x in dX], linewidth=3, linestyle='dotted', marker='o', markersize=9)
-        # plt.plot(np.linalg.norm(x, 2))
+        print([np.linalg.norm(x, 2) for x in dX])
+        axs1.plot([np.linalg.norm(x, 2) for x in dX], linewidth=3, linestyle='dotted', marker='o', markersize=9)
         # plt.plot([np.linalg.norm(x, 2) for x in nX], linewidth=3, linestyle='dashed', marker='o', markersize=9)
-        plt.ylabel('||x||')
-        plt.xlabel(r'k')
-        plt.xticks(ticks=range(len(dX)))
+
+        #plt.ylabel(r'$\vert\vertx\vert\vert$')
+        #plt.xlabel(r'k')
+        #plt.xticks(ticks=range(len(dX)))
+
+        axs2.set_ylim(0, 1)
+        axs2.set_xticks(range(len(dc[0])))
+        axs2.plot(dc[0], dc[1], linewidth=3, linestyle='dotted', marker='o', markersize=9, label=name)
+        #axs2.plot(dc[1],  linewidth=3, linestyle='dotted', marker='o', markersize=9)
+
+
+    plt.show()
 
 
 def epoch_plots(recompute: bool = True):
@@ -312,10 +332,13 @@ lstm.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics
 models = {'DNN': dnn, 'CNN': cnn}
 loss_funcs = {'DNN': log_loss, 'CNN': log_loss, 'LSTM': log_loss}
 
-X_train = X_train.iloc[0:50, :]        # for speed
-y_train = y_train.iloc[0:50, :]
-X_eval = X_eval.iloc[0:50, :]
-y_eval = y_eval.iloc[0:50, :]
+X_train = X_train.iloc[0:10, :]        # for speed
+y_train = y_train.iloc[0:10, :]
+X_eval = X_eval.iloc[0:10, :]
+y_eval = y_eval.iloc[0:10, :]
 
+#epoch_plots()
 #performance_plot()
-epoch_plots()
+models['DNN'].fit(X_train, y_train, verbose=0)
+models['CNN'].fit(X_train, y_train, verbose=0)
+poisoning_plot()
