@@ -1,16 +1,15 @@
-import matplotlib.pyplot as plt
-import pandas as pd
-
 from CNN_new import CNN_Model
-from LSTM import LSTM_model, lstmClass
-from sklearn import svm
+from LSTM import LSTM_model
+from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import log_loss, confusion_matrix, plot_roc_curve
+from sklearn.metrics import log_loss, confusion_matrix
+
 
 from typing import Callable, List, Any, Optional
 
 from NN_model import *
-
+from ROC_plot import *
+from RNN import RNN_base
 from preprocess import *
 
 
@@ -88,6 +87,8 @@ def gradient_attack(model: Callable, loss: Callable, gradient: Callable,
         iters = i
 
         # performs gradient ascent like method, depends on implementation of gradient function
+        print(derivative)
+        print(gradient(f1, derivative, y)[0])
         x = x + params['eta'] * gradient(f1, derivative, y)[0]
         f1 = model.predict(np.array([x]), verbose=0)
         if max([np.linalg.norm(x - x_last, 2)]) < params['tol'] or stop(f0, f1):
@@ -95,6 +96,18 @@ def gradient_attack(model: Callable, loss: Callable, gradient: Callable,
             break
 
     return x, iters
+
+
+def get_x(model: Callable, X_train: pd.DataFrame, y_train: pd.DataFrame) -> tuple[np.array, np.array]:
+    x, yp = None, None
+    for _ in range(100):
+        k = np.random.randint(0, X_train.shape[0])
+        x = np.array([X_train.iloc[k]][0])
+        yp = np.mod(y_train.iloc[k] + 1, 2)[0]
+        if myround(model.predict(np.array([x])))[0] == y_train.iloc[k].values[0]:
+            break
+
+    return x, yp
 
 
 def poison_model(model: Callable, loss: Callable, data: tuple, attack: str, num_data: int) -> tuple:
@@ -115,21 +128,17 @@ def poison_model(model: Callable, loss: Callable, data: tuple, attack: str, num_
         stop = lambda y1, y2: myround(y1) != myround(y2)
         dx = model_central_difference
     elif attack == 'Norm':
-        func, stop = lambda val, dir, y: dir / np.linalg.norm(dir, 2), lambda y1, y2: False
+        func, stop = lambda val, dir, y: dir / (np.linalg.norm(dir, 2) + 0.01), lambda y1, y2: False
         dx = loss_central_difference
     else:
         raise ValueError("Invalid attack type")
 
     params = solver_params()
     X_train, y_train, X_eval, y_eval = data
-    X_po, y_po, model_confidences = [], [], [[], []]
+    X_po, y_po, model_confidences, metrics, loss_history, iters = [], [], [[], []], [[], [], [], []], [], []
     for _ in range(num_data):
-        for _ in range(100):
-            k = np.random.randint(0, X_train.shape[0])
-            x = np.array([X_train.iloc[k]][0])
-            yp = np.mod(y_train.iloc[k] + 1, 2)[0]
-            if myround(model.predict(np.array([x])))[0] == y_train.iloc[k].values[0]:
-                break
+
+        x, yp = get_x(model, X_train, y_train)
 
         model_confidences[0].append(model.predict(np.array([x]), verbose=0)[0][0])
         xp, i = gradient_attack(model, loss, func, x, yp, params, stop, dx=dx)
@@ -137,18 +146,20 @@ def poison_model(model: Callable, loss: Callable, data: tuple, attack: str, num_
 
         X_po.append(xp)
         y_po.append(yp)
+        iters.append(i)
 
         model.fit(np.array([xp]), np.array([yp]), verbose=0)
 
-        sample_loss = loss(y_pred=model.predict(np.array([xp]), verbose=0), y_true=np.array([yp]), labels=(0, 1))
-        test_loss = loss(y_pred=model.predict(X_eval, verbose=0), y_true=y_eval, labels=(0, 1))
+        m = evaluation_metrics(model, X_train, y_train)
 
+        metrics[0].append(m['true positive'])
+        metrics[1].append(m['true negative'])
+        metrics[2].append(m['false positive'])
+        metrics[3].append(m['false negative'])
 
+        loss_history.append(loss(y_train, model.predict(X_train), labels=(0, 1)))
 
-    # model confidence in sample before/after
-    # sample itself
-
-    return np.array(X_po), np.array(y_po), model_confidences
+    return np.array(X_po), np.array(y_po), model_confidences, metrics, loss_history, iters
 
 
 def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
@@ -156,7 +167,7 @@ def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
                 loss_func: Callable, epoch_num: int, epoch_length: int) -> tuple[list, dict]:
     """
         :objective iteratively trains a SVC on dataset and poisons the dataset
-        :return: model performance over iteration of posioning 
+        :return: model performance over iteration of posioning
     """
 
     assert hasattr(model, 'fit') and hasattr(model, 'predict')
@@ -177,7 +188,7 @@ def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
             return loss_record, metrics
 
         # if next epoch has been reached train model on all data seen so far
-        if np.mod(n, epoch_length-1) == 0:
+        if np.mod(n+1, epoch_length) == 0:
             #print(epoch_batch[0], epoch_batch[1])
             model.fit(epoch_batch[0], epoch_batch[1])
 
@@ -192,38 +203,30 @@ def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
     return loss_record, metrics
 
 
-def defensive_mechanism(X_train: pd.DataFrame, X_po: pd.DataFrame):
-    mu = np.mean(X_train, axis=1)
-    std = np.std(X_train, axis=1)
+def defensive_mechanism(X_train: pd.DataFrame, X_candidate: pd.DataFrame, num_stds: float) -> np.array:
+    mu = np.mean(X_train.values, axis=1)
+    std = np.std(X_train.values, axis=1)
+
+    X_pass = []
+
+    for x in X_candidate.values:
+        if np.linalg.norm(x - mu, 2) > num_stds * np.linalg.norm(std, 2): # reject
+            continue
+        else:   # accept
+            X_pass.append(x)
+
+    return np.array(X_pass)
 
 
-def poisoning_plot():
-    fig1, axs1 = plt.subplots()
-    fig2, axs2 = plt.subplots()
-    for name, model in models.items():
-        fX, fy, fl_hist, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 5)
-        dX, dy, dc = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 5)
-        # nX, ny, nl_hist, ni = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'Norm', 1)
-        # plt.plot([np.linalg.norm(x, 2) for x in fX], linewidth=3, linestyle='solid', marker='o', markersize=9)
-        print([np.linalg.norm(x, 2) for x in dX])
-        axs1.plot([np.linalg.norm(x, 2) for x in dX], linewidth=3, linestyle='dotted', marker='o', markersize=9)
-        # plt.plot([np.linalg.norm(x, 2) for x in nX], linewidth=3, linestyle='dashed', marker='o', markersize=9)
-
-        #plt.ylabel(r'$\vert\vertx\vert\vert$')
-        #plt.xlabel(r'k')
-        #plt.xticks(ticks=range(len(dX)))
-
-        axs2.set_ylim(0, 1)
-        axs2.set_xticks(range(len(dc[0])))
-        axs2.plot(dc[0], dc[1], linewidth=3, linestyle='dotted', marker='o', markersize=9, label=name)
-        #axs2.plot(dc[1],  linewidth=3, linestyle='dotted', marker='o', markersize=9)
+def plot_data(X_train: pd.DataFrame, X_pos: pd.DataFrame, y_train: pd.DataFrame, y_pos: pd.DataFrame) -> np.array:
+    plt.scatter(X_train[:, 0], X_train[:, 1], marker="o", c=y_train, s=25, edgecolor="k")
+    plt.scatter(X_train[:, 0], X_train[:, 1], marker="o", c=y_train, s=25, edgecolor="k")
 
 
-    plt.show()
+def epoch_plots(models: dict, loss_funcs: dict, data: tuple, recompute: bool = True) -> None:
+    X_train, y_train, X_eval, y_eval = data
 
-
-def epoch_plots(recompute: bool = True):
-    epoch_length = 10    # the number of sample points in any epoch
+    epoch_length = 100    # the number of sample points in any epoch
     epoch_num = 3   # the number of epochs that the model will be trained over
 
     fig1, axs1 = plt.subplots(nrows=2, ncols=1)
@@ -236,6 +239,8 @@ def epoch_plots(recompute: bool = True):
         else:
             loss_history, performance_history = train_model(model, X_train, y_train, X_eval, y_eval, loss_funcs[name], epoch_num, epoch_length)
             np.savetxt(f"loss--{name}", loss_history) # uncomment when returns
+
+        print(name, loss_history)
 
         axs1[0].plot(loss_history[0], label=name, linewidth=3, linestyle='solid', marker='o', markersize=9)
         axs1[0].set_ylabel('Training', fontsize=15)
@@ -267,28 +272,37 @@ def epoch_plots(recompute: bool = True):
     plt.show()
 
 
-def performance_plot() -> None:
+def performance_plot(models: dict, data: tuple) -> None:
     """
     :return: trains each model using train_model in a batch style and plots the loss over epochs, displays
              the accuracy metrics
     """
 
-    models['DNN'].fit(X_train, y_train)
-    models['CNN'].fit(X_train, y_train)
+    X_train, y_train, X_eval, y_eval = data
 
     print('after training metrics')
-    dnn_metrics = evaluation_metrics(dnn, X_eval, y_eval)
-    cnn_metrics = evaluation_metrics(cnn, X_eval, y_eval)
+
+    plt.figure()
+
+    dnn_metrics = evaluation_metrics(models['DNN'], X_eval, y_eval)
+    cnn_metrics = evaluation_metrics(models['CNN'], X_eval, y_eval)
+    svm_metrics = evaluation_metrics(models['SVM'], X_eval, y_eval)
+    rf_metrics = evaluation_metrics(models['RF'], X_eval, y_eval)
+
     print('dnn', dnn_metrics)
     print('cnn', cnn_metrics)
+    print('svm', svm_metrics)
+    print('rf', rf_metrics)
 
     plt.figure()
 
     fig, ax = plt.subplots()
     x = np.arange(len(dnn_metrics))
-    width = 0.35  # the width of the bars
-    rects1 = ax.bar(x - width / 2, list(dnn_metrics.values()), width, label='DNN')
-    rects2 = ax.bar(x + width / 2, list(cnn_metrics.values()), width, label='CNN')
+    width = 0.2  # the width of the bars
+    rects1 = ax.bar(x - width, list(dnn_metrics.values()), width=width, label='DNN')
+    rects2 = ax.bar(x, list(cnn_metrics.values()), width=width, label='CNN')
+    rects3 = ax.bar(x + width, list(svm_metrics.values()), width=width, label='SVM')
+    rects4 = ax.bar(x - 2 * width, list(rf_metrics.values()), width, label='RF')
 
     # Add some text for labels, title and custom x-axis tick labels, etc.
     ax.set_ylabel('Scores', fontsize=15)
@@ -299,47 +313,66 @@ def performance_plot() -> None:
 
     ax.bar_label(rects1, padding=3)
     ax.bar_label(rects2, padding=3)
+    ax.bar_label(rects3, padding=3)
+    ax.bar_label(rects4, padding=3)
 
     fig.tight_layout()
-
-    #plt.figure()
-    #m = tf.keras.metrics.AUC(curve='ROC')
-    #m.update_state(y_eval, models['DNN'].predict(X_eval))
-
-    #plot_roc_curve(dnn, X_eval, y_eval)
 
     plt.show()
 
 
-X_train, X_eval, y_train, y_eval = preprocess_UNSW()
+def controller():
+    X_train, X_eval, y_train, y_eval = preprocess_UNSW()
+
+    time_steps = 16
+    units = 32
+
+    n = X_train.shape[1]
+    dnn = CustomNN(n, tf.keras.initializers.he_uniform)
+    cnn = CNN_Model(n, 2)
+    lstm = LSTM_model(time_steps, units, n)
+    rf = RandomForestClassifier(n_estimators=100, criterion='log_loss')
+    svc = SVC(kernel='rbf', cache_size=1000, class_weight={0: 0.5, 1: 1}, probability=True)
+
+    dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy, metrics=[tf.metrics.TruePositives()])
+    cnn.compile(loss=tf.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
+    lstm.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
 
 
-time_steps = 16
-units = 32
+    # lstm.fit(X_train, y_train)
 
-n = X_train.shape[1]
-dnn = CustomNN(n, tf.keras.initializers.he_uniform)
-cnn = CNN_Model(n, 2)
-lstm = lstmClass()
+    models = {'DNN': dnn, 'CNN': cnn, 'RF': rf, 'SVM': svc}
+    loss_funcs = {'DNN': log_loss, 'CNN': log_loss, 'LSTM': log_loss, 'RF': log_loss, 'SVM': log_loss}
+
+    X_train = X_train.iloc[0:100, :]  # for speed
+    y_train = y_train.iloc[0:100, :]
+    X_eval = X_eval.iloc[0:100, :]
+    y_eval = y_eval.iloc[0:100, :]
+
+    data = (X_train, y_train, X_eval, y_eval)
+
+    #epoch_plots(models, loss_funcs, data)
+
+    for model in models.values():
+        model.fit(X_train, y_train)
+
+    #Draw_ROC(models, data)
+    #performance_plot(models, data)
+
+    for name, model in models.items():
+        if not hasattr(model, 'loss'):  # loss based poisoning
+            continue
+
+        # fX, fy, fl_hist, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 2)
+        # dX, dy, dc, dm, dl, di = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 2)
+        nX, ny, nc, nm, nl, ni = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'Norm', 1)
+
+        # np.save(f'DeepFool_{name}_X', dX)
+        # np.save(f'DeepFool_{name}_y', dy)
+        # np.save(f'DeepFool_{name}_c', dc)
+        # np.save(f'DeepFool_{name}_m', dm)
+        # np.save(f'DeepFool_{name}_l', dl)
+        #np.save(f'DeepFool_{name}_i', di)
 
 
-dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy, metrics=[tf.metrics.TruePositives()])
-cnn.compile(loss=tf.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
-lstm.compile()
-
-#lstm.fit(X_train, y_train)
-
-models = {'DNN': dnn, 'CNN': cnn, 'LSTM': lstm}
-loss_funcs = {'DNN': log_loss, 'CNN': log_loss, 'LSTM': log_loss}
-
-X_train = X_train.iloc[0:10, :]        # for speed
-y_train = y_train.iloc[0:10, :]
-X_eval = X_eval.iloc[0:10, :]
-y_eval = y_eval.iloc[0:10, :]
-
-#epoch_plots()
-#performance_plot()
-models['DNN'].fit(X_train, y_train, verbose=0)
-models['CNN'].fit(X_train, y_train, verbose=0)
-models['LSTM'].fit(X_train, y_train, verbose=0)
-poisoning_plot()
+controller()

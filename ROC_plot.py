@@ -1,26 +1,27 @@
 from sklearn.metrics import roc_curve, auc
-
-def Draw_ROC(model1,model2):
-
-    fpr_DNN,tpr_DNN,thresholds=roc_curve(np.array(y_eval),model1.predict(X_eval))
-    roc_auc_DNN=auc(fpr_DNN,tpr_DNN)
-    fpr_CNN,tpr_CNN,thresholds=roc_curve(np.array(y_eval),model2.predict(X_eval))
-    roc_auc_CNN=auc(fpr_CNN,tpr_CNN)
+import matplotlib.pyplot as plt
+import numpy as np
 
 
-    plt.figure()
-    lw = 2
-    plt.figure(figsize=(10,10))
+def Draw_ROC(models: dict, data: tuple) -> None:
 
-    plt.plot(fpr_DNN,tpr_DNN,'purple',lw=lw,label='DNN_AUC = %0.2f'% roc_auc_DNN)
+    X_train, y_train, X_eval, y_eval = data
+    plt.figure(figsize=(5, 5))
+    for name, model in models.items():
+        fpr, tpr, thresholds = roc_curve(np.array(y_eval), model.predict(X_eval))
+        auc_score = auc(fpr, tpr)
 
-    plt.plot(fpr_CNN,tpr_CNN,color='darkorange', lw=lw, label='CNN_AUC = %0.2f'% roc_auc_CNN)
+        plt.plot(fpr, tpr, lw=2, label=f'{name} AUC = %0.2f' % auc_score)
 
-    plt.legend(loc='lower right',fontsize = 12)
-    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
-    plt.ylabel('True Positive Rate',fontsize = 14)
-    plt.xlabel('Flase Positive Rate',fontsize = 14)
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.legend(loc='lower right', fontsize=9)
+    plt.ylabel('True Positive Rate', fontsize=14)
+    plt.xlabel('False Positive Rate', fontsize=14)
+    plt.title('ROC curve')
+
+    plt.ylim(-0.0125, 1.0125)
+    plt.xlim(-0.0125, 1.0125)
 
     plt.show()
 
-Draw_ROC(dnn,cnn)
+
