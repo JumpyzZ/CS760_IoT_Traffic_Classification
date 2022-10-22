@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 
 from CNN_new import CNN_Model
+from LSTM import LSTM_model
 from sklearn import svm
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import log_loss, confusion_matrix, plot_roc_curve
@@ -154,30 +155,29 @@ def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
 
     assert hasattr(model, 'fit') and hasattr(model, 'predict')
 
-    epoch_batch = [[], np.array([]), [], np.array([])]  # X_train. y_train, X_test, y_test
-    loss_record = [[], []]  # generalisation and training loss arrays
+    epoch_batch = [np.array([[]]), np.array([]), np.array([[]]), np.array([])]  # batches
+    loss_record = [[], []]  # training and generalisation loss arrays
     metrics = {'accuracy': [], 'true negative': [], 'false positive': [], 'false negative': [], 'true positive': []}    # performance metrics
 
-    append = lambda a, x: [x] if len(a) == 0 else np.append(a, [x], axis=0)
-
+    I = lambda a: 1 if a.shape[1] == 0 else 0
     for n, xtr, ytr, xte, yte in zip(range(len(X_train)), X_train.to_numpy(), y_train.to_numpy(), X_test.to_numpy(), y_test.to_numpy()):
         # add sample to batch
-        epoch_batch[0] = append(epoch_batch[0], xtr)
+        epoch_batch[0] = np.append(epoch_batch[0], [xtr], axis=I(epoch_batch[0]))
         epoch_batch[1] = np.append(epoch_batch[1], ytr, axis=0)
-        epoch_batch[2] = append(epoch_batch[2], xte)
+        epoch_batch[2] = np.append(epoch_batch[2], [xte], axis=I(epoch_batch[2]))
         epoch_batch[3] = np.append(epoch_batch[3], yte, axis=0)
 
-        if epoch_num == n:
+        if (epoch_num-1)*epoch_length == n:
             return loss_record, metrics
 
         # if next epoch has been reached train model on all data seen so far
-        if np.mod(n, epoch_length) == 0:
-            print("...")
-            model.fit(np.array(epoch_batch[0]), epoch_batch[1])
+        if np.mod(n, epoch_length-1) == 0:
+            #print(epoch_batch[0], epoch_batch[1])
+            model.fit(epoch_batch[0], epoch_batch[1])
 
-            # acquire generalisation and training loss
-            loss_record[0].append(loss_func(epoch_batch[1], myround(model.predict(epoch_batch[0]))))
-            loss_record[1].append(loss_func(epoch_batch[3], myround(model.predict(epoch_batch[2]))))
+            # acquire training and generalisation loss
+            loss_record[0].append(loss_func(epoch_batch[1], model.predict(epoch_batch[0]), labels=(0, 1)))
+            loss_record[1].append(loss_func(epoch_batch[3], model.predict(epoch_batch[2]), labels=(0, 1)))
 
             # acquire performance metrics
             for name, value in evaluation_metrics(model, epoch_batch[0], epoch_batch[1]).items():
@@ -202,11 +202,11 @@ def poisoning_plot(models: dict, loss_funcs: dict):
         plt.xticks(ticks=range(len(dX)))
 
 
-def epoch_plots(models: dict, loss_funcs: dict, recompute: bool = True):
+def epoch_plots(recompute: bool = True):
     epoch_length = 10    # the number of sample points in any epoch
-    epoch_num = 0   # the number of epochs that the model will be trained over
+    epoch_num = 3   # the number of epochs that the model will be trained over
 
-    fig, axs = plt.subplots(nrows=2, ncols=1)
+    fig1, axs1 = plt.subplots(nrows=2, ncols=1)
     fig2, axs2 = plt.subplots(nrows=2, ncols=1)
     for name, model in models.items():
         # load loss history or compute and save it
@@ -217,10 +217,34 @@ def epoch_plots(models: dict, loss_funcs: dict, recompute: bool = True):
             loss_history, performance_history = train_model(model, X_train, y_train, X_eval, y_eval, loss_funcs[name], epoch_num, epoch_length)
             np.savetxt(f"loss--{name}", loss_history) # uncomment when returns
 
-        axs[0].plot(loss_history[0], label=name, linewidth=3, linestyle='solid', marker='o', markersize=9)
-        axs[1].plot(loss_history[1], label=name, linewidth=3, linestyle='solid', marker='o', markersize=9)
+        axs1[0].plot(loss_history[0], label=name, linewidth=3, linestyle='solid', marker='o', markersize=9)
+        axs1[0].set_ylabel('Training', fontsize=15)
+        axs1[0].set_xticks([])
+
+        axs1[1].plot(loss_history[1], label=name, linewidth=3, linestyle='solid', marker='o', markersize=9)
+        axs1[1].set_ylabel('Test', fontsize=15)
+        axs1[1].set_xlabel('Epoch', fontsize=15)
+        axs1[1].set_xticks(range(epoch_num), fontsize=10)
+
+        axs2[0].plot(performance_history['true positive'], label=name, linewidth=3, linestyle='solid', marker='o', markersize=9)
+        axs2[0].set_ylabel('True positive', fontsize=15)
+        axs2[0].set_xticks([])
+
+        axs2[1].plot(performance_history['true negative'], label=name, linewidth=3, linestyle='solid', marker='o', markersize=9)
+        axs2[1].set_ylabel('True negative', fontsize=15)
+        axs2[1].set_xlabel('Epoch', fontsize=15)
+        axs2[1].set_xticks(range(epoch_num), fontsize=10)
+
+        axs1[0].legend()
+        axs2[0].legend()
+
+        fig1.suptitle('Binary cross entropy', fontsize=18)
+        fig2.suptitle('Performance metrics', fontsize=18)
+
 
         #axs2[0].plot(performance_history['true positive'], label=name, linewidth=3, linestyle='solid', marker='o', markersize=9)
+
+    plt.show()
 
 
 def performance_plot() -> None:
@@ -269,18 +293,29 @@ def performance_plot() -> None:
 
 X_train, X_eval, y_train, y_eval = preprocess_UNSW()
 
+
+time_steps = 16
+units = 32
+
 n = X_train.shape[1]
 dnn = CustomNN(n, tf.keras.initializers.he_uniform)
 cnn = CNN_Model(n, 2)
+lstm = LSTM_model(time_steps, units, n)
+
+
 dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy, metrics=[tf.metrics.TruePositives()])
 cnn.compile(loss=tf.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
+lstm.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
+
+#lstm.fit(X_train, y_train)
 
 models = {'DNN': dnn, 'CNN': cnn}
-loss_funcs = {'DNN': log_loss, 'CNN': log_loss}
+loss_funcs = {'DNN': log_loss, 'CNN': log_loss, 'LSTM': log_loss}
 
 X_train = X_train.iloc[0:50, :]        # for speed
 y_train = y_train.iloc[0:50, :]
 X_eval = X_eval.iloc[0:50, :]
 y_eval = y_eval.iloc[0:50, :]
 
-performance_plot()
+#performance_plot()
+epoch_plots()
