@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from CNN_new import CNN_Model
-from LSTM import LSTM_model
+from LSTM import LSTM_model, lstmClass
 from sklearn import svm
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import log_loss, confusion_matrix, plot_roc_curve
@@ -201,8 +201,8 @@ def poisoning_plot():
     fig1, axs1 = plt.subplots()
     fig2, axs2 = plt.subplots()
     for name, model in models.items():
-        # fX, fy, fl_hist, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 2)
-        dX, dy, dc = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 2)
+        fX, fy, fl_hist, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 5)
+        dX, dy, dc = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 5)
         # nX, ny, nl_hist, ni = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'Norm', 1)
         # plt.plot([np.linalg.norm(x, 2) for x in fX], linewidth=3, linestyle='solid', marker='o', markersize=9)
         print([np.linalg.norm(x, 2) for x in dX])
@@ -320,16 +320,16 @@ units = 32
 n = X_train.shape[1]
 dnn = CustomNN(n, tf.keras.initializers.he_uniform)
 cnn = CNN_Model(n, 2)
-lstm = LSTM_model(time_steps, units, n)
+lstm = lstmClass()
 
 
 dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy, metrics=[tf.metrics.TruePositives()])
 cnn.compile(loss=tf.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
-lstm.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
+lstm.compile()
 
 #lstm.fit(X_train, y_train)
 
-models = {'DNN': dnn, 'CNN': cnn}
+models = {'DNN': dnn, 'CNN': cnn, 'LSTM': lstm}
 loss_funcs = {'DNN': log_loss, 'CNN': log_loss, 'LSTM': log_loss}
 
 X_train = X_train.iloc[0:10, :]        # for speed
@@ -341,4 +341,5 @@ y_eval = y_eval.iloc[0:10, :]
 #performance_plot()
 models['DNN'].fit(X_train, y_train, verbose=0)
 models['CNN'].fit(X_train, y_train, verbose=0)
+models['LSTM'].fit(X_train, y_train, verbose=0)
 poisoning_plot()

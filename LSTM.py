@@ -73,3 +73,6 @@ class lstmClass:
 
     def fit(self, x, y, verbose):
         self.__lstm_model.fit(x.values.reshape((self.__m, self.__time_steps, self.__n)), y, epochs=self.__epochs, batch_size=self.__BATCH_SIZE, verbose=verbose)
+    
+    def compile(self):
+        self.__lstm_model.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
