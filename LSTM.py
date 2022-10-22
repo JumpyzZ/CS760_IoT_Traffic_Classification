@@ -68,11 +68,11 @@ class lstmClass:
 
         self.__n = X_train.shape[0]
         self.__m = X_train.shape[1]
-        self.__lstm_model = LSTM_model(16, 32, X_train.shape[1])
-        self.__lstm_model.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
+        self.lstm_model = LSTM_model(16, 32, X_train.shape[1])
+        self.lstm_model.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
 
     def fit(self, x, y, verbose):
-        self.__lstm_model.fit(x.values.reshape((self.__m, self.__time_steps, self.__n)), y, epochs=self.__epochs, batch_size=self.__BATCH_SIZE, verbose=verbose)
+        self.lstm_model.fit(x.values.reshape((self.__m, self.__time_steps, self.__n)), y, epochs=self.__epochs, batch_size=self.__BATCH_SIZE, verbose=verbose)
     
     def compile(self):
-        self.__lstm_model.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
+        self.lstm_model.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
