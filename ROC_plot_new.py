@@ -1,6 +1,14 @@
 from sklearn.metrics import roc_curve, auc
+import matplotlib.pyplot as plt
+import numpy as np
 
-def Draw_ROC(model1, model2, model3, model4):
+
+from sklearn.metrics import roc_curve, auc
+
+
+def Draw_ROC(model1, model2, model3, model4, data):
+
+    X_train, y_train, X_eval, y_eval = data
 
     fpr_DNN,tpr_DNN,thresholds=roc_curve(np.array(y_eval),model1.predict(X_eval))
     roc_auc_DNN=auc(fpr_DNN,tpr_DNN)
@@ -33,5 +41,3 @@ def Draw_ROC(model1, model2, model3, model4):
     plt.xlabel('Flase Positive Rate',fontsize = 14)
 
     plt.show()
-
-Draw_ROC(dnn,cnn,lstm.model, rnn)

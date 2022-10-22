@@ -8,8 +8,8 @@ from sklearn.metrics import log_loss, confusion_matrix
 from typing import Callable, List, Any, Optional
 
 from NN_model import *
-from ROC_plot import *
-from RNN import RNN_base
+from ROC_plot_new import *
+from RNN_new import RNN_base
 from preprocess import *
 
 
@@ -328,48 +328,53 @@ def controller():
     dnn = CustomNN(n, tf.keras.initializers.he_uniform)
     cnn = CNN_Model(n, 2)
     lstm = LSTM_model(time_steps, units, n)
-    rf = RandomForestClassifier(n_estimators=100, criterion='log_loss')
-    svc = SVC(kernel='rbf', cache_size=1000, class_weight={0: 0.5, 1: 1}, probability=True)
+    rnn = RNN_base(X_train)
+    rf = RandomForestClassifier(n_estimators=50, criterion='log_loss', verbose=10)
+    svc = SVC(kernel='rbf', cache_size=100, class_weight={0: 0.5, 1: 1}, probability=True, verbose=10)
 
     dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy, metrics=[tf.metrics.TruePositives()])
     cnn.compile(loss=tf.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
     lstm.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
+    rnn.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
 
 
     # lstm.fit(X_train, y_train)
 
     models = {'DNN': dnn, 'CNN': cnn, 'RF': rf, 'SVM': svc}
-    loss_funcs = {'DNN': log_loss, 'CNN': log_loss, 'LSTM': log_loss, 'RF': log_loss, 'SVM': log_loss}
+    loss_funcs = {'DNN': log_loss, 'CNN': log_loss, 'LSTM': log_loss, 'RF': log_loss, 'SVM': log_loss, 'RNN': log_loss}
 
-    #X_train = X_train.iloc[0:100, :]  # for speed
-    #y_train = y_train.iloc[0:100, :]
-    #X_eval = X_eval.iloc[0:100, :]
-    #y_eval = y_eval.iloc[0:100, :]
+    #X_train = X_train.iloc[0:10, :]  # for speed
+    #y_train = y_train.iloc[0:10, :]
+    #X_eval = X_eval.iloc[0:10, :]
+    #y_eval = y_eval.iloc[0:10, :]
 
     data = (X_train, y_train, X_eval, y_eval)
 
-    epoch_plots(models, loss_funcs, data)
+    #epoch_plots(models, loss_funcs, data)
 
-    for model in models.values():
-        model.fit(X_train, y_train)
+    #dnn.fit(X_train, y_train)
+    #cnn.fit(X_train, y_train)
+    rf.fit(X_train.values, y_train.values.ravel())
+    svc.fit(X_train, y_train.values.ravel())
+    lstm.fit(np.array(X_train)[:,:, np.newaxis], y_train)
+    rnn.fit(np.array(X_train).reshape([-1, X_train.shape[1], 1]), y_train)
 
-    #Draw_ROC(models, data)
+    #Draw_ROC(dnn, cnn, lstm, rnn, data)
     #performance_plot(models, data)
 
     for name, model in models.items():
         if not hasattr(model, 'loss'):  # loss based poisoning
             continue
 
-        fX, fy, fc, fm, fl, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 2)
-        dX, dy, dc, dm, dl, di = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 2)
-        nX, ny, nc, nm, nl, ni = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'Norm', 1)
+        fX, fy, fc, fm, fl, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 10)
+        dX, dy, dc, dm, dl, di = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 10)
 
-        np.save(f'DeepFool_{name}_X', fX)
-        np.save(f'DeepFool_{name}_y', fy)
-        np.save(f'DeepFool_{name}_c', fc)
-        np.save(f'DeepFool_{name}_m', fm)
-        np.save(f'DeepFool_{name}_l', fl)
-        np.save(f'DeepFool_{name}_i', fi)
+        np.save(f'FGSM_{name}_X', fX)
+        np.save(f'FGSM_{name}_y', fy)
+        np.save(f'FGSM_{name}_c', fc)
+        np.save(f'FGSM_{name}_m', fm)
+        np.save(f'FGSM_{name}_l', fl)
+        np.save(f'FGSM_{name}_i', fi)
 
         np.save(f'DeepFool_{name}_X', dX)
         np.save(f'DeepFool_{name}_y', dy)
@@ -378,12 +383,12 @@ def controller():
         np.save(f'DeepFool_{name}_l', dl)
         np.save(f'DeepFool_{name}_i', di)
 
-        np.save(f'DeepFool_{name}_X', nX)
-        np.save(f'DeepFool_{name}_y', ny)
-        np.save(f'DeepFool_{name}_c', nc)
-        np.save(f'DeepFool_{name}_m', nm)
-        np.save(f'DeepFool_{name}_l', nl)
-        np.save(f'DeepFool_{name}_i', ni)
+        #np.save(f'DeepFool_{name}_X', nX)
+        #np.save(f'DeepFool_{name}_y', ny)
+        #np.save(f'DeepFool_{name}_c', nc)
+        #np.save(f'DeepFool_{name}_m', nm)
+        #np.save(f'DeepFool_{name}_l', nl)
+        #np.save(f'DeepFool_{name}_i', ni)
 
 
 controller()
