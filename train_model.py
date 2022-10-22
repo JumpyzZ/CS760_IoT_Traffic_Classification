@@ -87,8 +87,6 @@ def gradient_attack(model: Callable, loss: Callable, gradient: Callable,
         iters = i
 
         # performs gradient ascent like method, depends on implementation of gradient function
-        print(derivative)
-        print(gradient(f1, derivative, y)[0])
         x = x + params['eta'] * gradient(f1, derivative, y)[0]
         f1 = model.predict(np.array([x]), verbose=0)
         if max([np.linalg.norm(x - x_last, 2)]) < params['tol'] or stop(f0, f1):
@@ -128,7 +126,7 @@ def poison_model(model: Callable, loss: Callable, data: tuple, attack: str, num_
         stop = lambda y1, y2: myround(y1) != myround(y2)
         dx = model_central_difference
     elif attack == 'Norm':
-        func, stop = lambda val, dir, y: dir / (np.linalg.norm(dir, 2) + 0.01), lambda y1, y2: False
+        func, stop = lambda val, dir, y: dir / (np.linalg.norm(dir, 2)), lambda y1, y2: False
         dx = loss_central_difference
     else:
         raise ValueError("Invalid attack type")
@@ -226,12 +224,13 @@ def plot_data(X_train: pd.DataFrame, X_pos: pd.DataFrame, y_train: pd.DataFrame,
 def epoch_plots(models: dict, loss_funcs: dict, data: tuple, recompute: bool = True) -> None:
     X_train, y_train, X_eval, y_eval = data
 
-    epoch_length = 100    # the number of sample points in any epoch
-    epoch_num = 3   # the number of epochs that the model will be trained over
+    epoch_num = 10   # the number of epochs that the model will be trained over
+    epoch_length = np.floor(X_train.shape[0] / epoch_num)    # the number of sample points in any epoch
 
     fig1, axs1 = plt.subplots(nrows=2, ncols=1)
     fig2, axs2 = plt.subplots(nrows=2, ncols=1)
     for name, model in models.items():
+        print(name)
         # load loss history or compute and save it
         if os.path.exists(f"{model}") and not recompute:
             loss_history = np.loadtxt(f"loss--{model}")
@@ -239,8 +238,6 @@ def epoch_plots(models: dict, loss_funcs: dict, data: tuple, recompute: bool = T
         else:
             loss_history, performance_history = train_model(model, X_train, y_train, X_eval, y_eval, loss_funcs[name], epoch_num, epoch_length)
             np.savetxt(f"loss--{name}", loss_history) # uncomment when returns
-
-        print(name, loss_history)
 
         axs1[0].plot(loss_history[0], label=name, linewidth=3, linestyle='solid', marker='o', markersize=9)
         axs1[0].set_ylabel('Training', fontsize=15)
@@ -344,14 +341,14 @@ def controller():
     models = {'DNN': dnn, 'CNN': cnn, 'RF': rf, 'SVM': svc}
     loss_funcs = {'DNN': log_loss, 'CNN': log_loss, 'LSTM': log_loss, 'RF': log_loss, 'SVM': log_loss}
 
-    X_train = X_train.iloc[0:100, :]  # for speed
-    y_train = y_train.iloc[0:100, :]
-    X_eval = X_eval.iloc[0:100, :]
-    y_eval = y_eval.iloc[0:100, :]
+    #X_train = X_train.iloc[0:100, :]  # for speed
+    #y_train = y_train.iloc[0:100, :]
+    #X_eval = X_eval.iloc[0:100, :]
+    #y_eval = y_eval.iloc[0:100, :]
 
     data = (X_train, y_train, X_eval, y_eval)
 
-    #epoch_plots(models, loss_funcs, data)
+    epoch_plots(models, loss_funcs, data)
 
     for model in models.values():
         model.fit(X_train, y_train)
@@ -363,16 +360,30 @@ def controller():
         if not hasattr(model, 'loss'):  # loss based poisoning
             continue
 
-        # fX, fy, fl_hist, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 2)
-        # dX, dy, dc, dm, dl, di = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 2)
+        fX, fy, fc, fm, fl, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 2)
+        dX, dy, dc, dm, dl, di = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 2)
         nX, ny, nc, nm, nl, ni = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'Norm', 1)
 
-        # np.save(f'DeepFool_{name}_X', dX)
-        # np.save(f'DeepFool_{name}_y', dy)
-        # np.save(f'DeepFool_{name}_c', dc)
-        # np.save(f'DeepFool_{name}_m', dm)
-        # np.save(f'DeepFool_{name}_l', dl)
-        #np.save(f'DeepFool_{name}_i', di)
+        np.save(f'DeepFool_{name}_X', fX)
+        np.save(f'DeepFool_{name}_y', fy)
+        np.save(f'DeepFool_{name}_c', fc)
+        np.save(f'DeepFool_{name}_m', fm)
+        np.save(f'DeepFool_{name}_l', fl)
+        np.save(f'DeepFool_{name}_i', fi)
+
+        np.save(f'DeepFool_{name}_X', dX)
+        np.save(f'DeepFool_{name}_y', dy)
+        np.save(f'DeepFool_{name}_c', dc)
+        np.save(f'DeepFool_{name}_m', dm)
+        np.save(f'DeepFool_{name}_l', dl)
+        np.save(f'DeepFool_{name}_i', di)
+
+        np.save(f'DeepFool_{name}_X', nX)
+        np.save(f'DeepFool_{name}_y', ny)
+        np.save(f'DeepFool_{name}_c', nc)
+        np.save(f'DeepFool_{name}_m', nm)
+        np.save(f'DeepFool_{name}_l', nl)
+        np.save(f'DeepFool_{name}_i', ni)
 
 
 controller()
