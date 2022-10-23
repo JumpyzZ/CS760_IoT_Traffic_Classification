@@ -29,15 +29,17 @@ def RNN_base(X_train: pd.DataFrame):
 
 class RNNClass:
     def __init__(self):
-        self.X_train, self.X_test, self.y_train, self.y_test = preprocess_UNSW()
-        sample = self.X_train.shape[0]
-        features = self.X_train.shape[1]
-        x_train_ = np.array(self.X_train).reshape([-1, self.X_train.shape[1], 1])
-        x_test_ = np.array(self.X_test).reshape([-1, self.X_test.shape[1], 1])
+        self.model
+    
+    def compile(self, loss, optimizer, metrics):
+        self.model.compile(loss = loss, optimizer = optimizer, metrics=metrics)
 
+    def fit(self, X_train, y_train):
+        sample = X_train.shape[0]
+        features = X_train.shape[1]
         self.model = Sequential()
         #  1st RNN layer and Dropout regularization
-        self.model.add(SimpleRNN(units = 50, activation='relu', return_sequences=True, input_shape= (x_train_.shape[1],1)))
+        self.model.add(SimpleRNN(units = 50, activation='relu', return_sequences=True, input_shape= (X_train.shape[1],1)))
         self.model.add(Dropout(0.2))
         # 2nd RNN layer and Dropout regularization
         self.model.add(SimpleRNN(units = 50, activation='relu', return_sequences=True))
@@ -50,11 +52,7 @@ class RNNClass:
         self.model.add(Dropout(0.2))
         # output layer
         self.model.add(Dense(units = 1))
-        # compile the RNN
-        self.model.compile(loss = 'binary_crossentropy', optimizer = 'adam', metrics=['accuracy'])
-
-    def fit(self):
-        self.model.fit(self.X_train, self.y_train, epochs=32, batch_size=128,verbose = 1)
+        self.model.fit(X_train, y_train, epochs=32, batch_size=128,verbose = 1)
 
     def predict(self, X_eval):
         sample = self.X_eval.shape[0]
