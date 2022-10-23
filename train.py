@@ -1,5 +1,5 @@
 from CNN_new import CNN_Model
-from LSTM_new import *
+from LSTM_new import LSTM_model
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import log_loss, confusion_matrix
@@ -283,7 +283,7 @@ def performance_plot(models: dict, data: tuple) -> None:
 
     dnn_metrics = evaluation_metrics(dnn, X_eval, y_eval)
     cnn_metrics = evaluation_metrics(cnn, X_eval, y_eval)
-    lstm_metrics = evaluation_metrics(models['LSTM'], np.array(X_eval)[:,:, np.newaxis], np.array(y_eval))
+    lstm_metrics = evaluation_metrics(lstm, X_eval, y_eval)
     rnn_metrics = evaluation_metrics(rnn, np.array(X_eval).reshape([-1, X_eval.shape[1], 1]), y_eval)
     svm_metrics = evaluation_metrics(models['SVM'], X_eval, y_eval)
     rf_metrics = evaluation_metrics(models['RF'], X_eval, y_eval)
@@ -335,8 +335,7 @@ def controller():
     n = X_train.shape[1]
     dnn = CustomNN(n, tf.keras.initializers.he_uniform)
     cnn = CNN_Model(n, 2)
-    lstm = SequeClassifier(128)
-    lstm.build_model()
+    lstm = LSTM_model(n)
     rnn = RNN_base()
     rf = RandomForestClassifier()
     svc = SVC(kernel='rbf', cache_size=100, class_weight={0: 0.5, 1: 1}, probability=True, verbose=10)
@@ -349,7 +348,7 @@ def controller():
 
     # lstm.fit(X_train, y_train)
 
-    models = {'DNN': dnn, 'CNN': cnn, 'LSTM':lstm.model, 'RNN':rnn, "SVM":svc, "RF":rf}
+    models = {'DNN': dnn, 'CNN': cnn, 'LSTM':lstm, 'RNN':rnn, "SVM":svc, "RF":rf}
     loss_funcs = {'DNN': log_loss, 'CNN': log_loss, 'LSTM': log_loss, 'RF': log_loss, 'SVM': log_loss, 'RNN': log_loss}
 
     #X_train = X_train.iloc[0:10, :]  # for speed
@@ -365,7 +364,7 @@ def controller():
     cnn.fit(X_train, y_train)
     rf.fit(X_train.values, y_train.values.ravel())
     svc.fit(X_train, y_train.values.ravel())
-    lstm.model.fit(np.array(X_train)[:,:, np.newaxis], np.array(y_train))
+    lstm.fit(np.array(X_train), np.array(y_train))
     rnn.fit(np.array(X_train).reshape([-1, X_train.shape[1], 1]), y_train)
 
     #Draw_ROC(dnn, cnn, lstm, rnn, data)
