@@ -242,7 +242,7 @@ def performance_plot() -> None:
 
     models['DNN'].fit(X_train, y_train)
     models['CNN'].fit(X_train, y_train)
-    models['LSTM'].fit(np.array(X_train)[:,:, np.newaxis], np.array(y_train))
+    models['LSTM'].fit(X_train, y_train)
     models['RNN'].fit(np.array(X_train).reshape([-1, X_train.shape[1], 1]), y_train)
     models['RF'].fit(X_train.values, y_train.values.ravel())
     models['SVM'].fit(X_train, y_train.values.ravel())
@@ -250,7 +250,7 @@ def performance_plot() -> None:
     print('after training metrics')
     dnn_metrics = evaluation_metrics(dnn, X_eval, y_eval)
     cnn_metrics = evaluation_metrics(cnn, X_eval, y_eval)
-    lstm_metrics = evaluation_metrics(models['LSTM'], np.array(X_eval)[:,:, np.newaxis], np.array(y_eval))
+    lstm_metrics = evaluation_metrics(lstm, X_eval, y_eval)
     rnn_metrics = evaluation_metrics(rnn, np.array(X_eval).reshape([-1, X_eval.shape[1], 1]), y_eval)
     svm_metrics = evaluation_metrics(models['SVM'], X_eval, y_eval)
     rf_metrics = evaluation_metrics(models['RF'], X_eval, y_eval)
@@ -306,7 +306,7 @@ def Draw_ROC(model1,model2,model3, model4, model5, model6):
     fpr_CNN,tpr_CNN,thresholds=roc_curve(np.array(y_eval),model2.predict(X_eval))
     roc_auc_CNN=auc(fpr_CNN,tpr_CNN)
 
-    fpr_LSTM,tpr_LSTM,thresholds=roc_curve(np.array(y_eval),model3.predict(np.array(X_eval)[:,:, np.newaxis]))
+    fpr_LSTM,tpr_LSTM,thresholds=roc_curve(np.array(y_eval),model3.predict(X_eval)
     roc_auc_LSTM=auc(fpr_LSTM,tpr_LSTM)
 
     fpr_RNN,tpr_RNN,thresholds=roc_curve(np.array(y_eval),model4.predict(np.array(X_eval).reshape([-1, X_eval.shape[1], 1])))
@@ -366,7 +366,7 @@ cnn.compile(loss=tf.losses.binary_crossentropy, optimizer='adam', metrics=[tf.me
 lstm.model.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
 rnn.compile(loss=tf.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
 
-models = {'DNN': dnn, 'CNN': cnn, 'LSTM':lstm.model, 'RNN':rnn, "SVM":svc, "RF":rf}
+models = {'DNN': dnn, 'CNN': cnn, 'LSTM':lstm, 'RNN':rnn, "SVM":svc, "RF":rf}
 loss_funcs = {'DNN': log_loss, 'CNN': log_loss, 'LSTM':log_loss, 'RNN':log_loss,  'SVM':log_loss, 'RF':log_loss}
 
 #X_train = X_train.iloc[0:50, :]        # for speed
@@ -376,4 +376,4 @@ loss_funcs = {'DNN': log_loss, 'CNN': log_loss, 'LSTM':log_loss, 'RNN':log_loss,
 
 performance_plot()
 
-Draw_ROC(dnn,cnn,lstm.model, rnn, rf, svc)
+Draw_ROC(dnn,cnn,lstm, rnn, rf, svc)
