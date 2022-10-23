@@ -7,6 +7,7 @@ import os
 import tensorflow as tf
 
 from sklearn.svm import SVC
+from LSTM_new import SequeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from keras.models import Sequential
 from typing import Union
@@ -69,16 +70,7 @@ class CustomNN(tf.keras.Model):
 
         return features4
 
-# LSTM
-class SequeClassifier():
-    def __init__(self, units):
-        self.units = units
-        self.model = None
-    def build_model(self):
-        self.model = Sequential()
-        self.model.add(LSTM(self.units, return_sequences=True))
-        self.model.add(LSTM(self.units))
-        self.model.add(Dense(1, activation='sigmoid'))
+
 
 # RNN
 def RNN_base():
@@ -131,7 +123,8 @@ def get_UNSW() -> pd.DataFrame:
 
     return df
 
-def preprocess_UNSW(split: float=0.2, ):
+
+def preprocess_UNSW(split: float=0.2):
     assert 0 < split < 1
     print('Starting Preprocessing')
     UNSW_data = get_UNSW()  # fetch datasets
@@ -157,6 +150,7 @@ def preprocess_UNSW(split: float=0.2, ):
     ypre = ypre.drop(['id'], axis=1)
 
     return train_test_split(Xpre, ypre, test_size=split)
+
 
 def train_model(model, X_train: pd.DataFrame, y_train: pd.DataFrame,
                 X_test: pd.DataFrame, y_test: pd.DataFrame,
@@ -234,6 +228,7 @@ def evaluation_metrics(model, X_eval, y_eval):
 
     return {'true negative': tn, 'false positive': fp, 'false negative': fn, 'true positive': tp}
 
+
 def performance_plot() -> None:
     """
     :return: trains each model using train_model in a batch style and plots the loss over epochs, displays
@@ -297,6 +292,7 @@ def performance_plot() -> None:
     #plot_roc_curve(dnn, X_eval, y_eval)
     plt.savefig('./boxplot.eps', dpi=300)
     plt.show()
+
 
 def Draw_ROC(model1,model2,model3, model4, model5, model6):
 

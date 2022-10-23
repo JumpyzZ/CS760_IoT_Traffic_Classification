@@ -1,4 +1,11 @@
+import matplotlib.pyplot as plt
+import numpy as np
+from preprocess import preprocess_UNSW
+from sklearn.metrics import roc_curve, auc
+
 def Draw_ROC(model1,model2,model3, model4, model5, model6):
+
+    X_train, X_eval, y_train, y_eval = preprocess_UNSW()
 
     fpr_DNN,tpr_DNN,thresholds=roc_curve(np.array(y_eval),model1.predict(X_eval))
     roc_auc_DNN=auc(fpr_DNN,tpr_DNN)

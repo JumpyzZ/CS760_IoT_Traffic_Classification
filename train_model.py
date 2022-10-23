@@ -1,5 +1,4 @@
 from CNN_new import CNN_Model
-from LSTM import LSTM_model
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import log_loss, confusion_matrix
@@ -8,9 +7,11 @@ from sklearn.metrics import log_loss, confusion_matrix
 from typing import Callable, List, Any, Optional
 
 from NN_model import *
-from ROC_plot_new import *
-from RNN_new import RNN_base
 from preprocess import *
+from LSTM_new import LSTM_model
+from ROC_plot_new import *
+from RNN_new import RNNClass
+from posioining_plot import poisoning_plots
 
 
 def solver_params() -> dict:
@@ -78,7 +79,7 @@ def gradient_attack(model: Callable, loss: Callable, gradient: Callable,
     """
 
     iters = 0
-    f0 = model.predict(np.array([x]), verbose=0)
+    f0 = model.predict(np.array([x]))
     f1 = f0
     for i in range(params['maxIter']):
         derivative = dx(model, x, params['h'], y, loss)
@@ -88,7 +89,7 @@ def gradient_attack(model: Callable, loss: Callable, gradient: Callable,
 
         # performs gradient ascent like method, depends on implementation of gradient function
         x = x + params['eta'] * gradient(f1, derivative, y)[0]
-        f1 = model.predict(np.array([x]), verbose=0)
+        f1 = model.predict(np.array([x]))
         if max([np.linalg.norm(x - x_last, 2)]) < params['tol'] or stop(f0, f1):
             iters = i + 1
             break
@@ -102,6 +103,7 @@ def get_x(model: Callable, X_train: pd.DataFrame, y_train: pd.DataFrame) -> tupl
         k = np.random.randint(0, X_train.shape[0])
         x = np.array([X_train.iloc[k]][0])
         yp = np.mod(y_train.iloc[k] + 1, 2)[0]
+
         if myround(model.predict(np.array([x])))[0] == y_train.iloc[k].values[0]:
             break
 
@@ -138,17 +140,19 @@ def poison_model(model: Callable, loss: Callable, data: tuple, attack: str, num_
 
         x, yp = get_x(model, X_train, y_train)
 
-        model_confidences[0].append(model.predict(np.array([x]), verbose=0)[0][0])
+        model_confidences[0].append(model.predict(np.array([x]))[0][0])
         xp, i = gradient_attack(model, loss, func, x, yp, params, stop, dx=dx)
-        model_confidences[1].append(model.predict(np.array([xp]), verbose=0)[0][0])
+        model_confidences[1].append(model.predict(np.array([xp]))[0][0])
 
         X_po.append(xp)
         y_po.append(yp)
         iters.append(i)
 
-        model.fit(np.array([xp]), np.array([yp]), verbose=0)
+        print(xp)
+        print(yp)
+        model.fit(np.array([xp]), np.array([yp]))
 
-        m = evaluation_metrics(model, X_train, y_train)
+        m = evaluation_metrics(model, X_train, np.array(y_train))
 
         metrics[0].append(m['true positive'])
         metrics[1].append(m['true negative'])
@@ -277,34 +281,49 @@ def performance_plot(models: dict, data: tuple) -> None:
 
     X_train, y_train, X_eval, y_eval = data
 
+    """
+    :return: trains each model using train_model in a batch style and plots the loss over epochs, displays
+             the accuracy metrics
+    """
+
+    models['DNN'].fit(X_train, y_train)
+    models['CNN'].fit(X_train, y_train)
+    models['LSTM'].fit(np.array(X_train)[:, :, np.newaxis], np.array(y_train))
+    models['RNN'].fit(np.array(X_train).reshape([-1, X_train.shape[1], 1]), y_train)
+    models['RF'].fit(X_train.values, y_train.values.ravel())
+    models['SVM'].fit(X_train, y_train.values.ravel())
+
     print('after training metrics')
-
-    plt.figure()
-
     dnn_metrics = evaluation_metrics(models['DNN'], X_eval, y_eval)
     cnn_metrics = evaluation_metrics(models['CNN'], X_eval, y_eval)
+    lstm_metrics = evaluation_metrics(models['LSTM'], np.array(X_eval)[:, :, np.newaxis], np.array(y_eval))
+    rnn_metrics = evaluation_metrics(models['RNN'], np.array(X_eval).reshape([-1, X_eval.shape[1], 1]), y_eval)
     svm_metrics = evaluation_metrics(models['SVM'], X_eval, y_eval)
     rf_metrics = evaluation_metrics(models['RF'], X_eval, y_eval)
 
     print('dnn', dnn_metrics)
     print('cnn', cnn_metrics)
+    print('lstm', lstm_metrics)
+    print('rnn', rnn_metrics)
     print('svm', svm_metrics)
     print('rf', rf_metrics)
 
     plt.figure()
-
     fig, ax = plt.subplots()
     x = np.arange(len(dnn_metrics))
-    width = 0.2  # the width of the bars
-    rects1 = ax.bar(x - width, list(dnn_metrics.values()), width=width, label='DNN')
-    rects2 = ax.bar(x, list(cnn_metrics.values()), width=width, label='CNN')
-    rects3 = ax.bar(x + width, list(svm_metrics.values()), width=width, label='SVM')
-    rects4 = ax.bar(x - 2 * width, list(rf_metrics.values()), width, label='RF')
+    width = 0.15  # the width of the bars
+
+    rects1 = ax.bar(x - width, list(dnn_metrics.values()), width, label='DNN')
+    rects2 = ax.bar(x + width, list(cnn_metrics.values()), width, label='CNN')
+    rects3 = ax.bar(x, list(lstm_metrics.values()), width, label='LSTM')
+    rects4 = ax.bar(x - 2 * width, list(rnn_metrics.values()), width, label='RNN')
+    rects5 = ax.bar(x + 2 * width, list(svm_metrics.values()), width=width, label='SVM')
+    rects6 = ax.bar(x - 3 * width, list(rf_metrics.values()), width, label='RF')
 
     # Add some text for labels, title and custom x-axis tick labels, etc.
     ax.set_ylabel('Scores', fontsize=15)
     ax.set_title('Model Performance metrics', fontsize=15)
-    ax.set_xticks(x, list(dnn_metrics.keys()), fontsize=15)
+    ax.set_xticks(x, list(dnn_metrics.keys()), fontsize=13, rotation=45)
     ax.set_ylim(0, 1)
     ax.legend()
 
@@ -312,9 +331,17 @@ def performance_plot(models: dict, data: tuple) -> None:
     ax.bar_label(rects2, padding=3)
     ax.bar_label(rects3, padding=3)
     ax.bar_label(rects4, padding=3)
+    ax.bar_label(rects5, padding=3)
+    ax.bar_label(rects6, padding=3)
 
     fig.tight_layout()
 
+    # plt.figure()
+    # m = tf.keras.metrics.AUC(curve='ROC')
+    # m.update_state(y_eval, models['DNN'].predict(X_eval))
+
+    # plot_roc_curve(dnn, X_eval, y_eval)
+    plt.savefig('./boxplot.eps', dpi=300)
     plt.show()
 
 
@@ -327,26 +354,29 @@ def controller():
     n = X_train.shape[1]
     dnn = CustomNN(n, tf.keras.initializers.he_uniform)
     cnn = CNN_Model(n, 2)
-    lstm = LSTM_model(time_steps, units, n)
-    rnn = RNN_base(X_train)
-    rf = RandomForestClassifier(n_estimators=50, criterion='log_loss', verbose=10)
-    svc = SVC(kernel='rbf', cache_size=100, class_weight={0: 0.5, 1: 1}, probability=True, verbose=10)
+    lstm = LSTM_model(n)
+    rnn = RNNClass(X_train)
+    rf = RandomForestClassifier()
+    svc = SVC(kernel='rbf', cache_size=100, class_weight={0: 0.5, 1: 1}, probability=True, verbose=10, tol=0.1)
 
     dnn.compile(optimizer='Adam', loss=tf.losses.binary_crossentropy, metrics=[tf.metrics.TruePositives()])
     cnn.compile(loss=tf.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
     lstm.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
     rnn.compile(loss=tf.keras.losses.binary_crossentropy, optimizer='adam', metrics=[tf.metrics.TruePositives()])
 
-
-    # lstm.fit(X_train, y_train)
-
-    models = {'DNN': dnn, 'CNN': cnn, 'RF': rf, 'SVM': svc}
+    models = {'RNN':rnn} #'DNN': dnn, 'LSTM': lstm, 'CNN': cnn, "SVM":svc, "RF":rf}
     loss_funcs = {'DNN': log_loss, 'CNN': log_loss, 'LSTM': log_loss, 'RF': log_loss, 'SVM': log_loss, 'RNN': log_loss}
 
-    #X_train = X_train.iloc[0:10, :]  # for speed
-    #y_train = y_train.iloc[0:10, :]
-    #X_eval = X_eval.iloc[0:10, :]
-    #y_eval = y_eval.iloc[0:10, :]
+    data = (X_train, y_train, X_eval, y_eval)
+
+    #epoch_plots(models, loss_funcs, data)
+
+    size = 6000 # for speed
+
+    X_train = X_train.iloc[0:size, :]
+    y_train = y_train.iloc[0:size, :]
+    X_eval = X_eval.iloc[0:size, :]
+    y_eval = y_eval.iloc[0:size, :]
 
     data = (X_train, y_train, X_eval, y_eval)
 
@@ -354,41 +384,44 @@ def controller():
 
     #dnn.fit(X_train, y_train)
     #cnn.fit(X_train, y_train)
-    rf.fit(X_train.values, y_train.values.ravel())
-    svc.fit(X_train, y_train.values.ravel())
-    lstm.fit(np.array(X_train)[:,:, np.newaxis], y_train)
-    rnn.fit(np.array(X_train).reshape([-1, X_train.shape[1], 1]), y_train)
+    #rf.fit(X_train, y_train)
+    #svc.fit(X_train, y_train)
+    #lstm.fit(X_train, y_train)
+    rnn.fit(X_train, y_train)
 
-    #Draw_ROC(dnn, cnn, lstm, rnn, data)
+    #Draw_ROC(dnn, cnn, lstm.model, rnn, rf, svc, data)
     #performance_plot(models, data)
 
-    for name, model in models.items():
-        if not hasattr(model, 'loss'):  # loss based poisoning
-            continue
+    comptute = True
+    if comptute:
+        for name, model in models.items():
+            fX, fy, fc, fm, fl, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 5)
+            dX, dy, dc, dm, dl, di = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 5)
 
-        fX, fy, fc, fm, fl, fi = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'FGSM', 10)
-        dX, dy, dc, dm, dl, di = poison_model(model, loss_funcs[name], (X_train, y_train, X_eval, y_eval), 'DeepFool', 10)
+            print(name)
 
-        np.save(f'FGSM_{name}_X', fX)
-        np.save(f'FGSM_{name}_y', fy)
-        np.save(f'FGSM_{name}_c', fc)
-        np.save(f'FGSM_{name}_m', fm)
-        np.save(f'FGSM_{name}_l', fl)
-        np.save(f'FGSM_{name}_i', fi)
+            np.save(f'FGSM_{name}_X', fX)
+            np.save(f'FGSM_{name}_y', fy)
+            np.save(f'FGSM_{name}_c', fc)
+            np.save(f'FGSM_{name}_m', fm)
+            np.save(f'FGSM_{name}_l', fl)
+            np.save(f'FGSM_{name}_i', fi)
 
-        np.save(f'DeepFool_{name}_X', dX)
-        np.save(f'DeepFool_{name}_y', dy)
-        np.save(f'DeepFool_{name}_c', dc)
-        np.save(f'DeepFool_{name}_m', dm)
-        np.save(f'DeepFool_{name}_l', dl)
-        np.save(f'DeepFool_{name}_i', di)
+            np.save(f'DeepFool_{name}_X', dX)
+            np.save(f'DeepFool_{name}_y', dy)
+            np.save(f'DeepFool_{name}_c', dc)
+            np.save(f'DeepFool_{name}_m', dm)
+            np.save(f'DeepFool_{name}_l', dl)
+            np.save(f'DeepFool_{name}_i', di)
 
-        #np.save(f'DeepFool_{name}_X', nX)
-        #np.save(f'DeepFool_{name}_y', ny)
-        #np.save(f'DeepFool_{name}_c', nc)
-        #np.save(f'DeepFool_{name}_m', nm)
-        #np.save(f'DeepFool_{name}_l', nl)
-        #np.save(f'DeepFool_{name}_i', ni)
+            #np.save(f'DeepFool_{name}_X', nX)
+            #np.save(f'DeepFool_{name}_y', ny)
+            #np.save(f'DeepFool_{name}_c', nc)
+            #np.save(f'DeepFool_{name}_m', nm)
+            #np.save(f'DeepFool_{name}_l', nl)
+            #np.save(f'DeepFool_{name}_i', ni)
+    else:
+        poisoning_plots(models, data)
 
 
 controller()
